@@ -146,6 +146,7 @@ pub enum Mnemonic {
     Neg,
     Negx,
     Ext,
+    Extb,  // 68020+ byte-to-long sign extend
     Clr,
 
     // Compare/test
@@ -199,6 +200,7 @@ pub enum Mnemonic {
     Nop,
     Illegal,
     Trap,
+    Trapcc,  // 68020+ conditional trap
     Trapv,
     Stop,
 
@@ -248,6 +250,7 @@ impl Mnemonic {
             Mnemonic::Neg => "neg",
             Mnemonic::Negx => "negx",
             Mnemonic::Ext => "ext",
+            Mnemonic::Extb => "extb",
             Mnemonic::Clr => "clr",
             Mnemonic::Cmp => "cmp",
             Mnemonic::Cmpa => "cmpa",
@@ -289,6 +292,7 @@ impl Mnemonic {
             Mnemonic::Nop => "nop",
             Mnemonic::Illegal => "illegal",
             Mnemonic::Trap => "trap",
+            Mnemonic::Trapcc => "trap",
             Mnemonic::Trapv => "trapv",
             Mnemonic::Stop => "stop",
             Mnemonic::Link => "link",
@@ -306,7 +310,7 @@ impl Mnemonic {
 
     /// Returns true if this mnemonic takes a condition code suffix.
     pub fn is_conditional(&self) -> bool {
-        matches!(self, Mnemonic::Bcc | Mnemonic::Dbcc | Mnemonic::Scc)
+        matches!(self, Mnemonic::Bcc | Mnemonic::Dbcc | Mnemonic::Scc | Mnemonic::Trapcc)
     }
 }
 
@@ -325,6 +329,8 @@ pub enum Operand {
     Displacement8(i8),
     /// 16-bit branch displacement.
     Displacement16(i16),
+    /// 32-bit branch displacement (68020+ long branch).
+    Displacement32(i32),
     /// TRAP vector number (0-15).
     TrapVector(u8),
     /// Condition code register (CCR).

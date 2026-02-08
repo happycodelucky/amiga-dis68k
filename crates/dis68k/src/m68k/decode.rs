@@ -206,6 +206,7 @@ impl<'a> DecodeCtx<'a> {
         size: Option<Size>,
         condition: Option<Condition>,
         operands: Vec<Operand>,
+        cpu_required: CpuVariant,
     ) -> Instruction {
         Instruction {
             address: self.address(),
@@ -215,7 +216,7 @@ impl<'a> DecodeCtx<'a> {
             size,
             condition,
             operands,
-            cpu_required: CpuVariant::M68000,
+            cpu_required,
         }
     }
 }
@@ -253,14 +254,14 @@ pub fn decode_instruction(
         0x9 => decode_group9(&mut ctx, opcode),
         0xA => Ok(ctx.make_inst(Mnemonic::Dc, Some(Size::Word), None, vec![
             Operand::Ea(EffectiveAddress::Immediate(opcode as u32)),
-        ])),
+        ], CpuVariant::M68000)),
         0xB => decode_group_b(&mut ctx, opcode),
         0xC => decode_group_c(&mut ctx, opcode),
         0xD => decode_group_d(&mut ctx, opcode),
         0xE => decode_group_e(&mut ctx, opcode),
         0xF => Ok(ctx.make_inst(Mnemonic::Dc, Some(Size::Word), None, vec![
             Operand::Ea(EffectiveAddress::Immediate(opcode as u32)),
-        ])),
+        ], CpuVariant::M68000)),
         _ => unreachable!(),
     }
 }
@@ -304,7 +305,7 @@ fn decode_ori(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, Decod
         return Ok(ctx.make_inst(Mnemonic::Ori, Some(Size::Byte), None, vec![
             Operand::Ea(EffectiveAddress::Immediate(imm as u32)),
             Operand::Ccr,
-        ]));
+        ], CpuVariant::M68000));
     }
     // ORI to SR
     if mode == 7 && reg == 4 && size == Size::Word {
@@ -312,7 +313,7 @@ fn decode_ori(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, Decod
         return Ok(ctx.make_inst(Mnemonic::Ori, Some(Size::Word), None, vec![
             Operand::Ea(EffectiveAddress::Immediate(imm as u32)),
             Operand::Sr,
-        ]));
+        ], CpuVariant::M68000));
     }
 
     let imm = read_immediate(ctx, size)?;
@@ -320,7 +321,7 @@ fn decode_ori(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, Decod
     Ok(ctx.make_inst(Mnemonic::Ori, Some(size), None, vec![
         Operand::Ea(EffectiveAddress::Immediate(imm)),
         Operand::Ea(ea),
-    ]))
+    ], CpuVariant::M68000))
 }
 
 fn decode_andi(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, DecodeError> {
@@ -333,14 +334,14 @@ fn decode_andi(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, Deco
         return Ok(ctx.make_inst(Mnemonic::Andi, Some(Size::Byte), None, vec![
             Operand::Ea(EffectiveAddress::Immediate(imm as u32)),
             Operand::Ccr,
-        ]));
+        ], CpuVariant::M68000));
     }
     if mode == 7 && reg == 4 && size == Size::Word {
         let imm = ctx.read_u16()?;
         return Ok(ctx.make_inst(Mnemonic::Andi, Some(Size::Word), None, vec![
             Operand::Ea(EffectiveAddress::Immediate(imm as u32)),
             Operand::Sr,
-        ]));
+        ], CpuVariant::M68000));
     }
 
     let imm = read_immediate(ctx, size)?;
@@ -348,7 +349,7 @@ fn decode_andi(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, Deco
     Ok(ctx.make_inst(Mnemonic::Andi, Some(size), None, vec![
         Operand::Ea(EffectiveAddress::Immediate(imm)),
         Operand::Ea(ea),
-    ]))
+    ], CpuVariant::M68000))
 }
 
 fn decode_subi(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, DecodeError> {
@@ -360,7 +361,7 @@ fn decode_subi(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, Deco
     Ok(ctx.make_inst(Mnemonic::Subi, Some(size), None, vec![
         Operand::Ea(EffectiveAddress::Immediate(imm)),
         Operand::Ea(ea),
-    ]))
+    ], CpuVariant::M68000))
 }
 
 fn decode_addi(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, DecodeError> {
@@ -372,7 +373,7 @@ fn decode_addi(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, Deco
     Ok(ctx.make_inst(Mnemonic::Addi, Some(size), None, vec![
         Operand::Ea(EffectiveAddress::Immediate(imm)),
         Operand::Ea(ea),
-    ]))
+    ], CpuVariant::M68000))
 }
 
 fn decode_eori(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, DecodeError> {
@@ -385,14 +386,14 @@ fn decode_eori(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, Deco
         return Ok(ctx.make_inst(Mnemonic::Eori, Some(Size::Byte), None, vec![
             Operand::Ea(EffectiveAddress::Immediate(imm as u32)),
             Operand::Ccr,
-        ]));
+        ], CpuVariant::M68000));
     }
     if mode == 7 && reg == 4 && size == Size::Word {
         let imm = ctx.read_u16()?;
         return Ok(ctx.make_inst(Mnemonic::Eori, Some(Size::Word), None, vec![
             Operand::Ea(EffectiveAddress::Immediate(imm as u32)),
             Operand::Sr,
-        ]));
+        ], CpuVariant::M68000));
     }
 
     let imm = read_immediate(ctx, size)?;
@@ -400,7 +401,7 @@ fn decode_eori(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, Deco
     Ok(ctx.make_inst(Mnemonic::Eori, Some(size), None, vec![
         Operand::Ea(EffectiveAddress::Immediate(imm)),
         Operand::Ea(ea),
-    ]))
+    ], CpuVariant::M68000))
 }
 
 fn decode_cmpi(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, DecodeError> {
@@ -412,7 +413,7 @@ fn decode_cmpi(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, Deco
     Ok(ctx.make_inst(Mnemonic::Cmpi, Some(size), None, vec![
         Operand::Ea(EffectiveAddress::Immediate(imm)),
         Operand::Ea(ea),
-    ]))
+    ], CpuVariant::M68000))
 }
 
 fn decode_bit_static(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, DecodeError> {
@@ -436,7 +437,7 @@ fn decode_bit_static(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction
     Ok(ctx.make_inst(mnemonic, None, None, vec![
         Operand::Ea(EffectiveAddress::Immediate(bit_num as u32)),
         Operand::Ea(ea),
-    ]))
+    ], CpuVariant::M68000))
 }
 
 fn decode_bit_dynamic(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, DecodeError> {
@@ -459,7 +460,7 @@ fn decode_bit_dynamic(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instructio
     Ok(ctx.make_inst(mnemonic, None, None, vec![
         Operand::Ea(EffectiveAddress::DataDirect(dn)),
         Operand::Ea(ea),
-    ]))
+    ], CpuVariant::M68000))
 }
 
 fn decode_movep(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, DecodeError> {
@@ -482,7 +483,7 @@ fn decode_movep(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, Dec
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
         )
     };
-    Ok(ctx.make_inst(Mnemonic::Movep, Some(size), None, vec![src, dst]))
+    Ok(ctx.make_inst(Mnemonic::Movep, Some(size), None, vec![src, dst], CpuVariant::M68000))
 }
 
 // ─── Groups 1-3: MOVE ────────────────────────────────────────────
@@ -507,14 +508,14 @@ fn decode_move(ctx: &mut DecodeCtx<'_>, opcode: u16, size: Size) -> Result<Instr
         return Ok(ctx.make_inst(Mnemonic::Movea, Some(movea_size), None, vec![
             Operand::Ea(src_ea),
             Operand::Ea(EffectiveAddress::AddressDirect(dst_reg)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     let dst_ea = ctx.decode_ea(dst_mode, dst_reg, size)?;
     Ok(ctx.make_inst(Mnemonic::Move, Some(size), None, vec![
         Operand::Ea(src_ea),
         Operand::Ea(dst_ea),
-    ]))
+    ], CpuVariant::M68000))
 }
 
 // ─── Group 4: Miscellaneous ──────────────────────────────────────
@@ -522,13 +523,13 @@ fn decode_move(ctx: &mut DecodeCtx<'_>, opcode: u16, size: Size) -> Result<Instr
 fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, DecodeError> {
     // Single-word encodings first
     match opcode {
-        0x4E70 => return Ok(ctx.make_inst(Mnemonic::Reset, None, None, vec![])),
-        0x4E71 => return Ok(ctx.make_inst(Mnemonic::Nop, None, None, vec![])),
-        0x4E73 => return Ok(ctx.make_inst(Mnemonic::Rte, None, None, vec![])),
-        0x4E75 => return Ok(ctx.make_inst(Mnemonic::Rts, None, None, vec![])),
-        0x4E76 => return Ok(ctx.make_inst(Mnemonic::Trapv, None, None, vec![])),
-        0x4E77 => return Ok(ctx.make_inst(Mnemonic::Rtr, None, None, vec![])),
-        0x4AFC => return Ok(ctx.make_inst(Mnemonic::Illegal, None, None, vec![])),
+        0x4E70 => return Ok(ctx.make_inst(Mnemonic::Reset, None, None, vec![], CpuVariant::M68000)),
+        0x4E71 => return Ok(ctx.make_inst(Mnemonic::Nop, None, None, vec![], CpuVariant::M68000)),
+        0x4E73 => return Ok(ctx.make_inst(Mnemonic::Rte, None, None, vec![], CpuVariant::M68000)),
+        0x4E75 => return Ok(ctx.make_inst(Mnemonic::Rts, None, None, vec![], CpuVariant::M68000)),
+        0x4E76 => return Ok(ctx.make_inst(Mnemonic::Trapv, None, None, vec![], CpuVariant::M68000)),
+        0x4E77 => return Ok(ctx.make_inst(Mnemonic::Rtr, None, None, vec![], CpuVariant::M68000)),
+        0x4AFC => return Ok(ctx.make_inst(Mnemonic::Illegal, None, None, vec![], CpuVariant::M68000)),
         _ => {}
     }
 
@@ -537,7 +538,7 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         let imm = ctx.read_u16()?;
         return Ok(ctx.make_inst(Mnemonic::Stop, None, None, vec![
             Operand::Ea(EffectiveAddress::Immediate(imm as u32)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // TRAP #vector
@@ -545,17 +546,30 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         let vector = (opcode & 0xF) as u8;
         return Ok(ctx.make_inst(Mnemonic::Trap, None, None, vec![
             Operand::TrapVector(vector),
-        ]));
+        ], CpuVariant::M68000));
     }
 
-    // LINK An,#disp
+    // LINK.L An,#disp (68020+): 0100_1000_00_001_rrr
+    if (opcode & 0xFFF8) == 0x4808 {
+        if !cpu_supports(ctx, CpuVariant::M68020) {
+            return Ok(make_dc_word(ctx, opcode));
+        }
+        let an = (opcode & 0x7) as u8;
+        let disp = ctx.read_u32()? as i32;
+        return Ok(ctx.make_inst(Mnemonic::Link, Some(Size::Long), None, vec![
+            Operand::Ea(EffectiveAddress::AddressDirect(an)),
+            Operand::Ea(EffectiveAddress::Immediate(disp as u32)),
+        ], CpuVariant::M68020));
+    }
+
+    // LINK.W An,#disp
     if (opcode & 0xFFF8) == 0x4E50 {
         let an = (opcode & 0x7) as u8;
         let disp = ctx.read_u16()? as i16;
         return Ok(ctx.make_inst(Mnemonic::Link, Some(Size::Word), None, vec![
             Operand::Ea(EffectiveAddress::AddressDirect(an)),
             Operand::Ea(EffectiveAddress::Immediate(disp as u16 as u32)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // UNLK An
@@ -563,7 +577,7 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         let an = (opcode & 0x7) as u8;
         return Ok(ctx.make_inst(Mnemonic::Unlk, None, None, vec![
             Operand::Ea(EffectiveAddress::AddressDirect(an)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // MOVE An,USP / MOVE USP,An
@@ -574,12 +588,12 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
             return Ok(ctx.make_inst(Mnemonic::MoveUsp, None, None, vec![
                 Operand::Ea(EffectiveAddress::AddressDirect(an)),
                 Operand::Usp,
-            ]));
+            ], CpuVariant::M68000));
         } else {
             return Ok(ctx.make_inst(Mnemonic::MoveUsp, None, None, vec![
                 Operand::Usp,
                 Operand::Ea(EffectiveAddress::AddressDirect(an)),
-            ]));
+            ], CpuVariant::M68000));
         }
     }
 
@@ -590,7 +604,7 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
     if (opcode & 0xFFF8) == 0x4840 {
         return Ok(ctx.make_inst(Mnemonic::Swap, Some(Size::Word), None, vec![
             Operand::Ea(EffectiveAddress::DataDirect(reg)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // PEA <ea>
@@ -598,7 +612,17 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         let ea = ctx.decode_ea(mode, reg, Size::Long)?;
         return Ok(ctx.make_inst(Mnemonic::Pea, Some(Size::Long), None, vec![
             Operand::Ea(ea),
-        ]));
+        ], CpuVariant::M68000));
+    }
+
+    // EXTB.L Dn (68020+) — byte-to-long sign extend: 0100_1000_11_000_rrr
+    if (opcode & 0xFFF8) == 0x49C0 {
+        if !cpu_supports(ctx, CpuVariant::M68020) {
+            return Ok(make_dc_word(ctx, opcode));
+        }
+        return Ok(ctx.make_inst(Mnemonic::Extb, Some(Size::Long), None, vec![
+            Operand::Ea(EffectiveAddress::DataDirect(reg)),
+        ], CpuVariant::M68020));
     }
 
     // EXT.W Dn or EXT.L Dn
@@ -606,7 +630,7 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         let size = if (opcode & 0x0040) != 0 { Size::Long } else { Size::Word };
         return Ok(ctx.make_inst(Mnemonic::Ext, Some(size), None, vec![
             Operand::Ea(EffectiveAddress::DataDirect(reg)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // MOVEM
@@ -621,7 +645,7 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         return Ok(ctx.make_inst(Mnemonic::Lea, Some(Size::Long), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::AddressDirect(an)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // CHK <ea>,Dn
@@ -631,17 +655,17 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         return Ok(ctx.make_inst(Mnemonic::Chk, Some(Size::Word), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // JMP / JSR
     if (opcode & 0xFFC0) == 0x4EC0 {
         let ea = ctx.decode_ea(mode, reg, Size::Long)?;
-        return Ok(ctx.make_inst(Mnemonic::Jmp, None, None, vec![Operand::Ea(ea)]));
+        return Ok(ctx.make_inst(Mnemonic::Jmp, None, None, vec![Operand::Ea(ea)], CpuVariant::M68000));
     }
     if (opcode & 0xFFC0) == 0x4E80 {
         let ea = ctx.decode_ea(mode, reg, Size::Long)?;
-        return Ok(ctx.make_inst(Mnemonic::Jsr, None, None, vec![Operand::Ea(ea)]));
+        return Ok(ctx.make_inst(Mnemonic::Jsr, None, None, vec![Operand::Ea(ea)], CpuVariant::M68000));
     }
 
     // NBCD <ea>
@@ -649,7 +673,7 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         let ea = ctx.decode_ea(mode, reg, Size::Byte)?;
         return Ok(ctx.make_inst(Mnemonic::Nbcd, Some(Size::Byte), None, vec![
             Operand::Ea(ea),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // TAS <ea>
@@ -657,7 +681,7 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         let ea = ctx.decode_ea(mode, reg, Size::Byte)?;
         return Ok(ctx.make_inst(Mnemonic::Tas, Some(Size::Byte), None, vec![
             Operand::Ea(ea),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // MOVE from SR: 0100_0000_11_mmmrrr
@@ -666,7 +690,7 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         return Ok(ctx.make_inst(Mnemonic::MoveFromSr, Some(Size::Word), None, vec![
             Operand::Sr,
             Operand::Ea(ea),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // MOVE to CCR: 0100_0100_11_mmmrrr
@@ -675,7 +699,7 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         return Ok(ctx.make_inst(Mnemonic::MoveToCcr, None, None, vec![
             Operand::Ea(ea),
             Operand::Ccr,
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // MOVE to SR: 0100_0110_11_mmmrrr
@@ -684,7 +708,7 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         return Ok(ctx.make_inst(Mnemonic::MoveToSr, Some(Size::Word), None, vec![
             Operand::Ea(ea),
             Operand::Sr,
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // NEG, NEGX, NOT, CLR, TST: 0100_ooo_ss_mmmrrr
@@ -701,7 +725,7 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
                 _ => return Ok(make_dc_word(ctx, opcode)),
             };
             let ea = ctx.decode_ea(mode, reg, size)?;
-            return Ok(ctx.make_inst(mnemonic, Some(size), None, vec![Operand::Ea(ea)]));
+            return Ok(ctx.make_inst(mnemonic, Some(size), None, vec![Operand::Ea(ea)], CpuVariant::M68000));
         }
     }
 
@@ -721,12 +745,12 @@ fn decode_movem(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, Dec
         Ok(ctx.make_inst(Mnemonic::Movem, Some(size), None, vec![
             Operand::RegisterList(register_mask),
             Operand::Ea(ea),
-        ]))
+        ], CpuVariant::M68000))
     } else {
         Ok(ctx.make_inst(Mnemonic::Movem, Some(size), None, vec![
             Operand::Ea(ea),
             Operand::RegisterList(register_mask),
-        ]))
+        ], CpuVariant::M68000))
     }
 }
 
@@ -747,14 +771,41 @@ fn decode_group5(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
             return Ok(ctx.make_inst(Mnemonic::Dbcc, Some(Size::Word), Some(condition), vec![
                 Operand::Ea(EffectiveAddress::DataDirect(reg)),
                 Operand::Displacement16(disp),
-            ]));
+            ], CpuVariant::M68000));
+        }
+
+        // TRAPcc (68020+): 0101_cccc_11_111_xxx where xxx = 010 (word), 011 (long), 100 (none)
+        if mode == 7 && (reg == 2 || reg == 3 || reg == 4) {
+            if !cpu_supports(ctx, CpuVariant::M68020) {
+                return Ok(make_dc_word(ctx, opcode));
+            }
+
+            let operands = match reg {
+                2 => {
+                    // TRAPcc.W #imm
+                    let imm = ctx.read_u16()?;
+                    vec![Operand::Ea(EffectiveAddress::Immediate(imm as u32))]
+                }
+                3 => {
+                    // TRAPcc.L #imm
+                    let imm = ctx.read_u32()?;
+                    vec![Operand::Ea(EffectiveAddress::Immediate(imm))]
+                }
+                4 => {
+                    // TRAPcc (no operand)
+                    vec![]
+                }
+                _ => unreachable!(),
+            };
+
+            return Ok(ctx.make_inst(Mnemonic::Trapcc, None, Some(condition), operands, CpuVariant::M68020));
         }
 
         // Scc <ea>
         let ea = ctx.decode_ea(mode, reg, Size::Byte)?;
         return Ok(ctx.make_inst(Mnemonic::Scc, Some(Size::Byte), Some(condition), vec![
             Operand::Ea(ea),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // ADDQ / SUBQ
@@ -776,7 +827,7 @@ fn decode_group5(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
     Ok(ctx.make_inst(mnemonic, Some(size), None, vec![
         Operand::QuickImmediate(quick_val),
         Operand::Ea(ea),
-    ]))
+    ], CpuVariant::M68000))
 }
 
 // ─── Group 6: Bcc / BRA / BSR ────────────────────────────────────
@@ -796,12 +847,21 @@ fn decode_group6(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         let disp16 = ctx.read_u16()? as i16;
         Ok(ctx.make_inst(mnemonic, Some(Size::Word), condition, vec![
             Operand::Displacement16(disp16),
-        ]))
+        ], CpuVariant::M68000))
+    } else if disp8 == -1 {
+        // disp8 == 0xFF means 32-bit displacement follows (68020+)
+        if !cpu_supports(ctx, CpuVariant::M68020) {
+            return Ok(make_dc_word(ctx, opcode));
+        }
+        let disp32 = ctx.read_u32()? as i32;
+        Ok(ctx.make_inst(mnemonic, Some(Size::Long), condition, vec![
+            Operand::Displacement32(disp32),
+        ], CpuVariant::M68020))
     } else {
         // 8-bit displacement in the opcode word
         Ok(ctx.make_inst(mnemonic, Some(Size::Byte), condition, vec![
             Operand::Displacement8(disp8),
-        ]))
+        ], CpuVariant::M68000))
     }
 }
 
@@ -816,7 +876,7 @@ fn decode_moveq(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, Dec
     Ok(ctx.make_inst(Mnemonic::Moveq, Some(Size::Long), None, vec![
         Operand::MoveqImmediate(data),
         Operand::Ea(EffectiveAddress::DataDirect(dn)),
-    ]))
+    ], CpuVariant::M68000))
 }
 
 // ─── Group 8: OR / DIVU / DIVS / SBCD ───────────────────────────
@@ -840,7 +900,7 @@ fn decode_group8(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
                 Operand::Ea(EffectiveAddress::AddressPreDecrement(dn)),
             )
         };
-        return Ok(ctx.make_inst(Mnemonic::Sbcd, Some(Size::Byte), None, vec![src, dst]));
+        return Ok(ctx.make_inst(Mnemonic::Sbcd, Some(Size::Byte), None, vec![src, dst], CpuVariant::M68000));
     }
 
     // DIVU <ea>,Dn
@@ -849,7 +909,7 @@ fn decode_group8(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         return Ok(ctx.make_inst(Mnemonic::Divu, Some(Size::Word), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // DIVS <ea>,Dn
@@ -858,7 +918,7 @@ fn decode_group8(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         return Ok(ctx.make_inst(Mnemonic::Divs, Some(Size::Word), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // OR <ea>,Dn / OR Dn,<ea>
@@ -874,12 +934,12 @@ fn decode_group8(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         Ok(ctx.make_inst(Mnemonic::Or, Some(size), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
-        ]))
+        ], CpuVariant::M68000))
     } else {
         Ok(ctx.make_inst(Mnemonic::Or, Some(size), None, vec![
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
             Operand::Ea(ea),
-        ]))
+        ], CpuVariant::M68000))
     }
 }
 
@@ -910,7 +970,7 @@ fn decode_group9(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
                 Operand::Ea(EffectiveAddress::AddressPreDecrement(dn)),
             )
         };
-        return Ok(ctx.make_inst(Mnemonic::Subx, Some(size), None, vec![src, dst]));
+        return Ok(ctx.make_inst(Mnemonic::Subx, Some(size), None, vec![src, dst], CpuVariant::M68000));
     }
 
     // SUBA <ea>,An
@@ -919,14 +979,14 @@ fn decode_group9(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         return Ok(ctx.make_inst(Mnemonic::Suba, Some(Size::Word), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::AddressDirect(dn)),
-        ]));
+        ], CpuVariant::M68000));
     }
     if op_mode == 7 {
         let ea = ctx.decode_ea(mode, reg, Size::Long)?;
         return Ok(ctx.make_inst(Mnemonic::Suba, Some(Size::Long), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::AddressDirect(dn)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // SUB <ea>,Dn / SUB Dn,<ea>
@@ -942,12 +1002,12 @@ fn decode_group9(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         Ok(ctx.make_inst(Mnemonic::Sub, Some(size), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
-        ]))
+        ], CpuVariant::M68000))
     } else {
         Ok(ctx.make_inst(Mnemonic::Sub, Some(size), None, vec![
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
             Operand::Ea(ea),
-        ]))
+        ], CpuVariant::M68000))
     }
 }
 
@@ -965,14 +1025,14 @@ fn decode_group_b(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
         return Ok(ctx.make_inst(Mnemonic::Cmpa, Some(Size::Word), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::AddressDirect(dn)),
-        ]));
+        ], CpuVariant::M68000));
     }
     if op_mode == 7 {
         let ea = ctx.decode_ea(mode, reg, Size::Long)?;
         return Ok(ctx.make_inst(Mnemonic::Cmpa, Some(Size::Long), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::AddressDirect(dn)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // CMPM (An)+,(An)+
@@ -986,7 +1046,7 @@ fn decode_group_b(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
         return Ok(ctx.make_inst(Mnemonic::Cmpm, Some(size), None, vec![
             Operand::Ea(EffectiveAddress::AddressPostIncrement(reg)),
             Operand::Ea(EffectiveAddress::AddressPostIncrement(dn)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // EOR Dn,<ea>
@@ -1001,7 +1061,7 @@ fn decode_group_b(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
         return Ok(ctx.make_inst(Mnemonic::Eor, Some(size), None, vec![
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
             Operand::Ea(ea),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // CMP <ea>,Dn
@@ -1015,7 +1075,7 @@ fn decode_group_b(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
     Ok(ctx.make_inst(Mnemonic::Cmp, Some(size), None, vec![
         Operand::Ea(ea),
         Operand::Ea(EffectiveAddress::DataDirect(dn)),
-    ]))
+    ], CpuVariant::M68000))
 }
 
 // ─── Group C: AND / MULU / MULS / ABCD / EXG ────────────────────
@@ -1039,7 +1099,7 @@ fn decode_group_c(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
                 Operand::Ea(EffectiveAddress::AddressPreDecrement(dn)),
             )
         };
-        return Ok(ctx.make_inst(Mnemonic::Abcd, Some(Size::Byte), None, vec![src, dst]));
+        return Ok(ctx.make_inst(Mnemonic::Abcd, Some(Size::Byte), None, vec![src, dst], CpuVariant::M68000));
     }
 
     // EXG
@@ -1048,21 +1108,21 @@ fn decode_group_c(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
         return Ok(ctx.make_inst(Mnemonic::Exg, Some(Size::Long), None, vec![
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
             Operand::Ea(EffectiveAddress::DataDirect(reg)),
-        ]));
+        ], CpuVariant::M68000));
     }
     if op_mode == 5 && mode == 1 {
         // EXG Ax,Ay
         return Ok(ctx.make_inst(Mnemonic::Exg, Some(Size::Long), None, vec![
             Operand::Ea(EffectiveAddress::AddressDirect(dn)),
             Operand::Ea(EffectiveAddress::AddressDirect(reg)),
-        ]));
+        ], CpuVariant::M68000));
     }
     if op_mode == 6 && mode == 1 {
         // EXG Dx,Ay
         return Ok(ctx.make_inst(Mnemonic::Exg, Some(Size::Long), None, vec![
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
             Operand::Ea(EffectiveAddress::AddressDirect(reg)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // MULU <ea>,Dn
@@ -1071,7 +1131,7 @@ fn decode_group_c(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
         return Ok(ctx.make_inst(Mnemonic::Mulu, Some(Size::Word), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // MULS <ea>,Dn
@@ -1080,7 +1140,7 @@ fn decode_group_c(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
         return Ok(ctx.make_inst(Mnemonic::Muls, Some(Size::Word), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // AND <ea>,Dn / AND Dn,<ea>
@@ -1096,12 +1156,12 @@ fn decode_group_c(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
         Ok(ctx.make_inst(Mnemonic::And, Some(size), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
-        ]))
+        ], CpuVariant::M68000))
     } else {
         Ok(ctx.make_inst(Mnemonic::And, Some(size), None, vec![
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
             Operand::Ea(ea),
-        ]))
+        ], CpuVariant::M68000))
     }
 }
 
@@ -1132,7 +1192,7 @@ fn decode_group_d(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
                 Operand::Ea(EffectiveAddress::AddressPreDecrement(dn)),
             )
         };
-        return Ok(ctx.make_inst(Mnemonic::Addx, Some(size), None, vec![src, dst]));
+        return Ok(ctx.make_inst(Mnemonic::Addx, Some(size), None, vec![src, dst], CpuVariant::M68000));
     }
 
     // ADDA
@@ -1141,14 +1201,14 @@ fn decode_group_d(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
         return Ok(ctx.make_inst(Mnemonic::Adda, Some(Size::Word), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::AddressDirect(dn)),
-        ]));
+        ], CpuVariant::M68000));
     }
     if op_mode == 7 {
         let ea = ctx.decode_ea(mode, reg, Size::Long)?;
         return Ok(ctx.make_inst(Mnemonic::Adda, Some(Size::Long), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::AddressDirect(dn)),
-        ]));
+        ], CpuVariant::M68000));
     }
 
     // ADD <ea>,Dn / ADD Dn,<ea>
@@ -1164,12 +1224,12 @@ fn decode_group_d(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
         Ok(ctx.make_inst(Mnemonic::Add, Some(size), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
-        ]))
+        ], CpuVariant::M68000))
     } else {
         Ok(ctx.make_inst(Mnemonic::Add, Some(size), None, vec![
             Operand::Ea(EffectiveAddress::DataDirect(dn)),
             Operand::Ea(ea),
-        ]))
+        ], CpuVariant::M68000))
     }
 }
 
@@ -1198,7 +1258,7 @@ fn decode_group_e(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
         };
 
         let ea = ctx.decode_ea(mode, reg, Size::Word)?;
-        return Ok(ctx.make_inst(mnemonic, Some(Size::Word), None, vec![Operand::Ea(ea)]));
+        return Ok(ctx.make_inst(mnemonic, Some(Size::Word), None, vec![Operand::Ea(ea)], CpuVariant::M68000));
     }
 
     // Register shift/rotate
@@ -1234,7 +1294,7 @@ fn decode_group_e(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
     Ok(ctx.make_inst(mnemonic, Some(size), None, vec![
         count_operand,
         Operand::Ea(EffectiveAddress::DataDirect(reg)),
-    ]))
+    ], CpuVariant::M68000))
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -1265,7 +1325,12 @@ fn read_immediate(ctx: &mut DecodeCtx<'_>, size: Size) -> Result<u32, DecodeErro
 fn make_dc_word(ctx: &DecodeCtx<'_>, opcode: u16) -> Instruction {
     ctx.make_inst(Mnemonic::Dc, Some(Size::Word), None, vec![
         Operand::Ea(EffectiveAddress::Immediate(opcode as u32)),
-    ])
+    ], CpuVariant::M68000)
+}
+
+/// Returns true if the configured CPU supports the given variant.
+fn cpu_supports(ctx: &DecodeCtx<'_>, required: CpuVariant) -> bool {
+    ctx.cpu >= required
 }
 
 #[cfg(test)]

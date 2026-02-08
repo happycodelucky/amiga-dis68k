@@ -193,6 +193,17 @@ fn format_operand_with_resolver(
             }
             format!("${target:08X}")
         }
+        Operand::Displacement32(d) => {
+            let target = (inst.address as i64) + 2 + (*d as i64);
+            if let Some(res) = resolver {
+                if target >= 0 {
+                    if let Some(label) = res.resolve_address(target as u32) {
+                        return label;
+                    }
+                }
+            }
+            format!("${target:08X}")
+        }
         // All other operands delegate to the original formatter
         _ => format_operand(op, inst, opts),
     }
@@ -233,6 +244,10 @@ fn format_operand(op: &Operand, inst: &Instruction, _opts: &FormatOptions) -> St
         }
         Operand::Displacement16(d) => {
             let target = (inst.address as i32) + 2 + (*d as i32);
+            format!("${target:08X}")
+        }
+        Operand::Displacement32(d) => {
+            let target = (inst.address as i64) + 2 + (*d as i64);
             format!("${target:08X}")
         }
         Operand::TrapVector(n) => format!("#{n}"),
