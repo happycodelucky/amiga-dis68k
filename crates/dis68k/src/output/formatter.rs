@@ -1,4 +1,4 @@
-use crate::m68k::addressing::EffectiveAddress;
+use crate::m68k::addressing::{EffectiveAddress, IndexRegister};
 use crate::m68k::instruction::*;
 use crate::symbols::resolver::SymbolResolver;
 
@@ -65,6 +65,7 @@ pub fn format_instruction(inst: &Instruction, opts: &FormatOptions) -> Formatted
                 | Mnemonic::Reset
                 | Mnemonic::Unlk
                 | Mnemonic::Moveq
+                | Mnemonic::TrapA
         ) {
             mnemonic.push_str(size.suffix());
         }
@@ -128,6 +129,7 @@ pub fn format_instruction_with_resolver(
                 | Mnemonic::Reset
                 | Mnemonic::Unlk
                 | Mnemonic::Moveq
+                | Mnemonic::TrapA
         ) {
             mnemonic.push_str(size.suffix());
         }
@@ -342,6 +344,130 @@ fn format_ea(ea: &EffectiveAddress) -> String {
                 format!("#${val:08X}")
             }
         }
+
+        // ─── 68020+ Extended Addressing Modes ────────────────────────────────
+
+        EffectiveAddress::AddressBaseDisplacement {
+            reg,
+            base_disp,
+            index_reg,
+            index_size,
+            scale,
+        } => {
+            let base = if *reg == 7 { "sp".to_string() } else { format!("a{reg}") };
+            match (index_reg, index_size) {
+                (Some(idx), Some(sz)) => {
+                    let idx_str = idx.to_string();
+                    let sz_str = sz.suffix();
+                    if *scale > 1 {
+                        format!("({base_disp},{base},{idx_str}{sz_str}*{scale})")
+                    } else {
+                        format!("({base_disp},{base},{idx_str}{sz_str})")
+                    }
+                }
+                _ => format!("({base_disp},{base})"),
+            }
+        }
+
+        EffectiveAddress::AddressMemoryIndirectPost {
+            reg,
+            base_disp,
+            outer_disp,
+            index_reg,
+            index_size,
+            scale,
+        } => {
+            let base_str = match reg {
+                Some(r) if *r == 7 => "sp",
+                Some(r) => return format!("([{base_disp},a{r}]{},{})",
+                    format_index_opt(index_reg, index_size, scale), outer_disp),
+                None => return format!("([{base_disp}]{},{})",
+                    format_index_opt(index_reg, index_size, scale), outer_disp),
+            };
+            format!("([{base_disp},{base_str}]{},{})",
+                format_index_opt(index_reg, index_size, scale), outer_disp)
+        }
+
+        EffectiveAddress::AddressMemoryIndirectPre {
+            reg,
+            base_disp,
+            outer_disp,
+            index_reg,
+            index_size,
+            scale,
+        } => {
+            let base_str = match reg {
+                Some(r) if *r == 7 => "sp",
+                Some(r) => return format!("([{base_disp},a{r}{}],{})",
+                    format_index_opt(index_reg, index_size, scale), outer_disp),
+                None => return format!("([{base_disp}{}],{})",
+                    format_index_opt(index_reg, index_size, scale), outer_disp),
+            };
+            format!("([{base_disp},{base_str}{}],{})",
+                format_index_opt(index_reg, index_size, scale), outer_disp)
+        }
+
+        EffectiveAddress::PcBaseDisplacement {
+            base_disp,
+            index_reg,
+            index_size,
+            scale,
+        } => {
+            match (index_reg, index_size) {
+                (Some(idx), Some(sz)) => {
+                    let idx_str = idx.to_string();
+                    let sz_str = sz.suffix();
+                    if *scale > 1 {
+                        format!("({base_disp},pc,{idx_str}{sz_str}*{scale})")
+                    } else {
+                        format!("({base_disp},pc,{idx_str}{sz_str})")
+                    }
+                }
+                _ => format!("({base_disp},pc)"),
+            }
+        }
+
+        EffectiveAddress::PcMemoryIndirectPost {
+            base_disp,
+            outer_disp,
+            index_reg,
+            index_size,
+            scale,
+        } => {
+            format!("([{base_disp},pc]{},{})",
+                format_index_opt(index_reg, index_size, scale), outer_disp)
+        }
+
+        EffectiveAddress::PcMemoryIndirectPre {
+            base_disp,
+            outer_disp,
+            index_reg,
+            index_size,
+            scale,
+        } => {
+            format!("([{base_disp},pc{}],{})",
+                format_index_opt(index_reg, index_size, scale), outer_disp)
+        }
+    }
+}
+
+/// Helper to format optional index register for memory indirect modes.
+fn format_index_opt(
+    index_reg: &Option<IndexRegister>,
+    index_size: &Option<Size>,
+    scale: &u8,
+) -> String {
+    match (index_reg, index_size) {
+        (Some(idx), Some(sz)) => {
+            let idx_str: String = idx.to_string();
+            let sz_str: &str = sz.suffix();
+            if *scale > 1 {
+                format!(",{idx_str}{sz_str}*{scale}")
+            } else {
+                format!(",{idx_str}{sz_str}")
+            }
+        }
+        _ => String::new(),
     }
 }
 
@@ -528,5 +654,17 @@ mod tests {
         );
         let fmt = format_instruction(&inst, &FormatOptions::default());
         assert_eq!(fmt.operands, "d0,-(sp)");
+    }
+
+    #[test]
+    fn format_trap_a() {
+        let inst = make_inst(
+            Mnemonic::TrapA,
+            None,
+            vec![Operand::Ea(EffectiveAddress::Immediate(0x123))],
+        );
+        let fmt = format_instruction(&inst, &FormatOptions::default());
+        assert_eq!(fmt.mnemonic, "trapa");
+        assert_eq!(fmt.operands, "#$0123");
     }
 }

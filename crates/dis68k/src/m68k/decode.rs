@@ -58,6 +58,7 @@ impl<'a> DecodeCtx<'a> {
         self.base_address + self.start as u32
     }
 
+    #[allow(dead_code)]
     fn current_pc(&self) -> u32 {
         self.base_address + self.pos as u32
     }
@@ -117,7 +118,7 @@ impl<'a> DecodeCtx<'a> {
             }
             6 => {
                 let ext = self.read_u16()?;
-                Ok(self.decode_index_ea_reg(reg, ext))
+                self.decode_index_ea_reg(reg, ext)
             }
             7 => match reg {
                 0 => {
@@ -134,7 +135,7 @@ impl<'a> DecodeCtx<'a> {
                 }
                 3 => {
                     let ext = self.read_u16()?;
-                    Ok(self.decode_index_ea_pc(ext))
+                    self.decode_index_ea_pc(ext)
                 }
                 4 => {
                     let imm = match size {
@@ -161,27 +162,52 @@ impl<'a> DecodeCtx<'a> {
         }
     }
 
-    fn decode_index_ea_reg(&self, base_reg: u8, ext: u16) -> EffectiveAddress {
-        let index_reg_num = ((ext >> 12) & 0x7) as u8;
-        let index_is_addr = (ext & 0x8000) != 0;
-        let index_size = if (ext & 0x0800) != 0 { Size::Long } else { Size::Word };
-        let scale = ((ext >> 9) & 0x3) as u8;
-        let disp = (ext & 0xFF) as i8;
-        let index_reg = if index_is_addr {
-            IndexRegister::Address(index_reg_num)
-        } else {
-            IndexRegister::Data(index_reg_num)
-        };
-        EffectiveAddress::AddressIndex {
-            reg: base_reg,
-            index_reg,
-            index_size,
-            scale: 1 << scale,
-            displacement: disp,
+    fn decode_index_ea_reg(&mut self, base_reg: u8, ext: u16) -> Result<EffectiveAddress, DecodeError> {
+        // Bit 8 = 0: brief format (68000), bit 8 = 1: full format (68020+)
+        let is_full = (ext & 0x0100) != 0;
+
+        if !is_full {
+            return self.decode_brief_extension(Some(base_reg), ext, false);
         }
+
+        if !cpu_supports(self, CpuVariant::M68020) {
+            return Err(DecodeError::InvalidEa {
+                address: self.address(),
+                mode: 6,
+                reg: base_reg,
+            });
+        }
+
+        self.decode_full_extension(Some(base_reg), ext, false)
     }
 
-    fn decode_index_ea_pc(&self, ext: u16) -> EffectiveAddress {
+    fn decode_index_ea_pc(&mut self, ext: u16) -> Result<EffectiveAddress, DecodeError> {
+        // Bit 8 = 0: brief format (68000), bit 8 = 1: full format (68020+)
+        let is_full = (ext & 0x0100) != 0;
+
+        if !is_full {
+            return self.decode_brief_extension(None, ext, true);
+        }
+
+        if !cpu_supports(self, CpuVariant::M68020) {
+            return Err(DecodeError::InvalidEa {
+                address: self.address(),
+                mode: 7,
+                reg: 3,
+            });
+        }
+
+        self.decode_full_extension(None, ext, true)
+    }
+
+    /// Decode 68000 brief extension word format.
+    /// base_reg: Some(reg) for An-relative, None for PC-relative
+    fn decode_brief_extension(
+        &self,
+        base_reg: Option<u8>,
+        ext: u16,
+        is_pc_relative: bool,
+    ) -> Result<EffectiveAddress, DecodeError> {
         let index_reg_num = ((ext >> 12) & 0x7) as u8;
         let index_is_addr = (ext & 0x8000) != 0;
         let index_size = if (ext & 0x0800) != 0 { Size::Long } else { Size::Word };
@@ -192,11 +218,237 @@ impl<'a> DecodeCtx<'a> {
         } else {
             IndexRegister::Data(index_reg_num)
         };
-        EffectiveAddress::PcIndex {
-            index_reg,
-            index_size,
-            scale: 1 << scale,
-            displacement: disp,
+
+        Ok(if is_pc_relative {
+            EffectiveAddress::PcIndex {
+                index_reg,
+                index_size,
+                scale: 1 << scale,
+                displacement: disp,
+            }
+        } else {
+            EffectiveAddress::AddressIndex {
+                reg: base_reg.unwrap(),
+                index_reg,
+                index_size,
+                scale: 1 << scale,
+                displacement: disp,
+            }
+        })
+    }
+
+    /// Decode 68020+ full extension word format.
+    /// base_reg: Some(reg) for An-relative, None for PC-relative
+    fn decode_full_extension(
+        &mut self,
+        base_reg: Option<u8>,
+        ext: u16,
+        is_pc_relative: bool,
+    ) -> Result<EffectiveAddress, DecodeError> {
+        // Parse extension word fields
+        let bs = (ext & 0x0080) != 0;  // Base register suppress
+        let is = (ext & 0x0040) != 0;  // Index suppress
+        let bd_size = (ext >> 4) & 0x3;  // Base displacement size
+        let i_is = ext & 0x7;  // Index/Indirect selection
+
+        // Read base displacement (if not suppressed)
+        let base_disp = match bd_size {
+            0 => 0,  // Reserved (treat as 0)
+            1 => 0,  // Null displacement
+            2 => {   // Word displacement
+                let word = self.read_u16()? as i16;
+                word as i32
+            }
+            3 => {   // Long displacement
+                self.read_u32()? as i32
+            }
+            _ => unreachable!(),
+        };
+
+        // Parse index register (if not suppressed)
+        let index_reg_num = ((ext >> 12) & 0x7) as u8;
+        let index_is_addr = (ext & 0x8000) != 0;
+        let index_size = if (ext & 0x0800) != 0 { Size::Long } else { Size::Word };
+        let scale = ((ext >> 9) & 0x3) as u8;
+
+        let index_reg = if is {
+            None
+        } else {
+            Some(if index_is_addr {
+                IndexRegister::Address(index_reg_num)
+            } else {
+                IndexRegister::Data(index_reg_num)
+            })
+        };
+
+        let index_size_opt = if is { None } else { Some(index_size) };
+        let scale_val = 1 << scale;
+
+        // Decode indirect/index selection
+        match i_is {
+            0 => {
+                // No memory indirect, index as part of intermediate address
+                if is_pc_relative {
+                    Ok(EffectiveAddress::PcBaseDisplacement {
+                        base_disp,
+                        index_reg,
+                        index_size: index_size_opt,
+                        scale: scale_val,
+                    })
+                } else {
+                    Ok(EffectiveAddress::AddressBaseDisplacement {
+                        reg: if bs { 0 } else { base_reg.unwrap() },  // Use reg 0 if suppressed
+                        base_disp,
+                        index_reg,
+                        index_size: index_size_opt,
+                        scale: scale_val,
+                    })
+                }
+            }
+            1 | 5 => {
+                // Memory indirect with null outer displacement
+                let preindexed = (i_is & 0x4) == 0;
+                let outer_disp = 0;
+
+                if preindexed {
+                    if is_pc_relative {
+                        Ok(EffectiveAddress::PcMemoryIndirectPre {
+                            base_disp,
+                            outer_disp,
+                            index_reg,
+                            index_size: index_size_opt,
+                            scale: scale_val,
+                        })
+                    } else {
+                        Ok(EffectiveAddress::AddressMemoryIndirectPre {
+                            reg: if bs { None } else { base_reg },
+                            base_disp,
+                            outer_disp,
+                            index_reg,
+                            index_size: index_size_opt,
+                            scale: scale_val,
+                        })
+                    }
+                } else {
+                    if is_pc_relative {
+                        Ok(EffectiveAddress::PcMemoryIndirectPost {
+                            base_disp,
+                            outer_disp,
+                            index_reg,
+                            index_size: index_size_opt,
+                            scale: scale_val,
+                        })
+                    } else {
+                        Ok(EffectiveAddress::AddressMemoryIndirectPost {
+                            reg: if bs { None } else { base_reg },
+                            base_disp,
+                            outer_disp,
+                            index_reg,
+                            index_size: index_size_opt,
+                            scale: scale_val,
+                        })
+                    }
+                }
+            }
+            2 | 6 => {
+                // Memory indirect with word outer displacement
+                let preindexed = (i_is & 0x4) == 0;
+                let outer_disp = self.read_u16()? as i16 as i32;
+
+                if preindexed {
+                    if is_pc_relative {
+                        Ok(EffectiveAddress::PcMemoryIndirectPre {
+                            base_disp,
+                            outer_disp,
+                            index_reg,
+                            index_size: index_size_opt,
+                            scale: scale_val,
+                        })
+                    } else {
+                        Ok(EffectiveAddress::AddressMemoryIndirectPre {
+                            reg: if bs { None } else { base_reg },
+                            base_disp,
+                            outer_disp,
+                            index_reg,
+                            index_size: index_size_opt,
+                            scale: scale_val,
+                        })
+                    }
+                } else {
+                    if is_pc_relative {
+                        Ok(EffectiveAddress::PcMemoryIndirectPost {
+                            base_disp,
+                            outer_disp,
+                            index_reg,
+                            index_size: index_size_opt,
+                            scale: scale_val,
+                        })
+                    } else {
+                        Ok(EffectiveAddress::AddressMemoryIndirectPost {
+                            reg: if bs { None } else { base_reg },
+                            base_disp,
+                            outer_disp,
+                            index_reg,
+                            index_size: index_size_opt,
+                            scale: scale_val,
+                        })
+                    }
+                }
+            }
+            3 | 7 => {
+                // Memory indirect with long outer displacement
+                let preindexed = (i_is & 0x4) == 0;
+                let outer_disp = self.read_u32()? as i32;
+
+                if preindexed {
+                    if is_pc_relative {
+                        Ok(EffectiveAddress::PcMemoryIndirectPre {
+                            base_disp,
+                            outer_disp,
+                            index_reg,
+                            index_size: index_size_opt,
+                            scale: scale_val,
+                        })
+                    } else {
+                        Ok(EffectiveAddress::AddressMemoryIndirectPre {
+                            reg: if bs { None } else { base_reg },
+                            base_disp,
+                            outer_disp,
+                            index_reg,
+                            index_size: index_size_opt,
+                            scale: scale_val,
+                        })
+                    }
+                } else {
+                    if is_pc_relative {
+                        Ok(EffectiveAddress::PcMemoryIndirectPost {
+                            base_disp,
+                            outer_disp,
+                            index_reg,
+                            index_size: index_size_opt,
+                            scale: scale_val,
+                        })
+                    } else {
+                        Ok(EffectiveAddress::AddressMemoryIndirectPost {
+                            reg: if bs { None } else { base_reg },
+                            base_disp,
+                            outer_disp,
+                            index_reg,
+                            index_size: index_size_opt,
+                            scale: scale_val,
+                        })
+                    }
+                }
+            }
+            4 => {
+                // Reserved
+                Err(DecodeError::InvalidEa {
+                    address: self.address(),
+                    mode: if is_pc_relative { 7 } else { 6 },
+                    reg: base_reg.unwrap_or(3),
+                })
+            }
+            _ => unreachable!(),
         }
     }
 
@@ -252,9 +504,7 @@ pub fn decode_instruction(
         0x7 => decode_moveq(&mut ctx, opcode),
         0x8 => decode_group8(&mut ctx, opcode),
         0x9 => decode_group9(&mut ctx, opcode),
-        0xA => Ok(ctx.make_inst(Mnemonic::Dc, Some(Size::Word), None, vec![
-            Operand::Ea(EffectiveAddress::Immediate(opcode as u32)),
-        ], CpuVariant::M68000)),
+        0xA => decode_trap_a(&mut ctx, opcode),
         0xB => decode_group_b(&mut ctx, opcode),
         0xC => decode_group_c(&mut ctx, opcode),
         0xD => decode_group_d(&mut ctx, opcode),
@@ -264,6 +514,13 @@ pub fn decode_instruction(
         ], CpuVariant::M68000)),
         _ => unreachable!(),
     }
+}
+
+fn decode_trap_a(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, DecodeError> {
+    let trap_num = opcode & 0x0FFF;
+    Ok(ctx.make_inst(Mnemonic::TrapA, None, None, vec![
+        Operand::Ea(EffectiveAddress::Immediate(trap_num as u32)),
+    ], CpuVariant::M68000))
 }
 
 // ─── Group 0: Immediate operations + bit ops ─────────────────────
@@ -496,6 +753,7 @@ fn decode_move(ctx: &mut DecodeCtx<'_>, opcode: u16, size: Size) -> Result<Instr
     let dst_mode = ((opcode >> 6) & 0x7) as u8;
 
     let src_ea = ctx.decode_ea(src_mode, src_reg, size)?;
+    let src_cpu = src_ea.min_cpu();
 
     // MOVEA: destination is an address register (mode 1)
     if dst_mode == 1 {
@@ -508,14 +766,15 @@ fn decode_move(ctx: &mut DecodeCtx<'_>, opcode: u16, size: Size) -> Result<Instr
         return Ok(ctx.make_inst(Mnemonic::Movea, Some(movea_size), None, vec![
             Operand::Ea(src_ea),
             Operand::Ea(EffectiveAddress::AddressDirect(dst_reg)),
-        ], CpuVariant::M68000));
+        ], src_cpu));
     }
 
     let dst_ea = ctx.decode_ea(dst_mode, dst_reg, size)?;
+    let cpu_required = if src_cpu >= dst_ea.min_cpu() { src_cpu } else { dst_ea.min_cpu() };
     Ok(ctx.make_inst(Mnemonic::Move, Some(size), None, vec![
         Operand::Ea(src_ea),
         Operand::Ea(dst_ea),
-    ], CpuVariant::M68000))
+    ], cpu_required))
 }
 
 // ─── Group 4: Miscellaneous ──────────────────────────────────────
@@ -642,10 +901,11 @@ fn decode_group4(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
     if (opcode & 0xF1C0) == 0x41C0 {
         let an = ((opcode >> 9) & 0x7) as u8;
         let ea = ctx.decode_ea(mode, reg, Size::Long)?;
+        let cpu_required = ea.min_cpu();
         return Ok(ctx.make_inst(Mnemonic::Lea, Some(Size::Long), None, vec![
             Operand::Ea(ea),
             Operand::Ea(EffectiveAddress::AddressDirect(an)),
-        ], CpuVariant::M68000));
+        ], cpu_required));
     }
 
     // CHK <ea>,Dn
@@ -1581,9 +1841,17 @@ mod tests {
     }
 
     #[test]
+    fn decode_trap_a() {
+        // A-line trap $A123
+        let inst = decode(&[0xA1, 0x23]);
+        assert_eq!(inst.mnemonic, Mnemonic::TrapA);
+        assert_eq!(inst.operands[0], Operand::Ea(EffectiveAddress::Immediate(0x123)));
+    }
+
+    #[test]
     fn decode_unknown_returns_dc() {
-        // A-line trap should be dc.w
-        let inst = decode(&[0xA0, 0x00]);
+        // F-line trap should be dc.w for now
+        let inst = decode(&[0xF0, 0x00]);
         assert_eq!(inst.mnemonic, Mnemonic::Dc);
     }
 }

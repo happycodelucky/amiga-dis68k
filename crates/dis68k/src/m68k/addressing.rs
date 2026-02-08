@@ -43,6 +43,58 @@ pub enum EffectiveAddress {
     },
     /// #imm — immediate value
     Immediate(u32),
+
+    // ─── 68020+ Extended Addressing Modes ────────────────────────────────
+
+    /// (bd,An,Xn.size*scale) — base displacement with scaled index (68020+)
+    AddressBaseDisplacement {
+        reg: u8,
+        base_disp: i32,
+        index_reg: Option<IndexRegister>,
+        index_size: Option<Size>,
+        scale: u8,
+    },
+    /// ([bd,An],Xn.size*scale,od) — memory indirect post-indexed (68020+)
+    AddressMemoryIndirectPost {
+        reg: Option<u8>,        // None = base register suppressed
+        base_disp: i32,
+        outer_disp: i32,
+        index_reg: Option<IndexRegister>,
+        index_size: Option<Size>,
+        scale: u8,
+    },
+    /// ([bd,An,Xn.size*scale],od) — memory indirect pre-indexed (68020+)
+    AddressMemoryIndirectPre {
+        reg: Option<u8>,
+        base_disp: i32,
+        outer_disp: i32,
+        index_reg: Option<IndexRegister>,
+        index_size: Option<Size>,
+        scale: u8,
+    },
+    /// (bd,PC,Xn.size*scale) — PC-relative base displacement with scaled index (68020+)
+    PcBaseDisplacement {
+        base_disp: i32,
+        index_reg: Option<IndexRegister>,
+        index_size: Option<Size>,
+        scale: u8,
+    },
+    /// ([bd,PC],Xn.size*scale,od) — PC-relative memory indirect post-indexed (68020+)
+    PcMemoryIndirectPost {
+        base_disp: i32,
+        outer_disp: i32,
+        index_reg: Option<IndexRegister>,
+        index_size: Option<Size>,
+        scale: u8,
+    },
+    /// ([bd,PC,Xn.size*scale],od) — PC-relative memory indirect pre-indexed (68020+)
+    PcMemoryIndirectPre {
+        base_disp: i32,
+        outer_disp: i32,
+        index_reg: Option<IndexRegister>,
+        index_size: Option<Size>,
+        scale: u8,
+    },
 }
 
 /// Identifies an index register used in indexed addressing modes.
@@ -59,6 +111,25 @@ impl std::fmt::Display for IndexRegister {
         match self {
             IndexRegister::Data(n) => write!(f, "d{n}"),
             IndexRegister::Address(n) => write!(f, "a{n}"),
+        }
+    }
+}
+
+impl EffectiveAddress {
+    /// Returns the minimum CPU variant required for this addressing mode.
+    pub fn min_cpu(&self) -> super::variants::CpuVariant {
+        use super::variants::CpuVariant;
+        match self {
+            // 68020+ extended addressing modes
+            EffectiveAddress::AddressBaseDisplacement { .. }
+            | EffectiveAddress::AddressMemoryIndirectPost { .. }
+            | EffectiveAddress::AddressMemoryIndirectPre { .. }
+            | EffectiveAddress::PcBaseDisplacement { .. }
+            | EffectiveAddress::PcMemoryIndirectPost { .. }
+            | EffectiveAddress::PcMemoryIndirectPre { .. } => CpuVariant::M68020,
+
+            // All other modes are 68000
+            _ => CpuVariant::M68000,
         }
     }
 }

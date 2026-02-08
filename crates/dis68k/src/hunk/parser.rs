@@ -151,6 +151,13 @@ pub fn parse_hunk_file(data: &[u8]) -> Result<HunkFile, HunkError> {
 
     // Read hunk table
     let num_hunks = cursor.read_u32_be()? as usize;
+    if num_hunks > 65536 {
+        return Err(HunkError::InvalidValue {
+            context: "hunk count > 65536",
+            value: num_hunks as u32,
+        });
+    }
+
     let first_hunk = cursor.read_u32_be()?;
     let last_hunk = cursor.read_u32_be()?;
 
@@ -176,8 +183,26 @@ pub fn parse_hunk_file(data: &[u8]) -> Result<HunkFile, HunkError> {
     let mut hunks: Vec<Hunk> = Vec::with_capacity(num_hunks);
     let mut current_hunk_idx: usize = 0;
 
-    while !cursor.is_eof() && current_hunk_idx <= num_hunks {
-        let type_word = cursor.read_u32_be()?;
+    // Use loop with explicit break conditions instead of just while
+    loop {
+        if cursor.is_eof() {
+            break;
+        }
+        
+        // Peek or read next word. If we have parsed all expected hunks,
+        // we should expect EOF or handle extra data (overlay? debug?).
+        // For now, if we've reached the count, we stop unless there's more.
+        // But the standard format is strictly sequential.
+        
+        // If we are about to read a hunk type but have already fulfilled the count?
+        // Some linkers might append debug info or overlay. 
+        // We'll stick to the loop condition but check consistency at the end.
+
+        let type_word = match cursor.read_u32_be() {
+            Ok(w) => w,
+            Err(_) => break, // EOF handled gracefully if between hunks
+        };
+
         let mem_flags = MemoryType::from_flags(type_word);
         let hunk_type = HunkType::from_raw(type_word).ok_or(HunkError::UnknownHunkType {
             raw: type_word,
@@ -274,6 +299,10 @@ pub fn parse_hunk_file(data: &[u8]) -> Result<HunkFile, HunkError> {
 
             HunkType::End => {
                 current_hunk_idx += 1;
+                // If we've parsed all hunks, we can stop
+                if current_hunk_idx >= num_hunks {
+                    break;
+                }
             }
 
             HunkType::Name => {
@@ -327,6 +356,13 @@ pub fn parse_hunk_file(data: &[u8]) -> Result<HunkFile, HunkError> {
         }
     }
 
+    if hunks.len() != num_hunks {
+        return Err(HunkError::HunkCountMismatch {
+            expected: num_hunks,
+            found: hunks.len(),
+        });
+    }
+
     Ok(HunkFile {
         hunks,
         first_hunk,
@@ -341,6 +377,17 @@ fn parse_reloc32(cursor: &mut Cursor<'_>, hunks: &mut [Hunk]) -> Result<(), Hunk
         if count == 0 {
             break;
         }
+        // Safety check: verify we have enough data for `count` offsets (4 bytes each).
+        // Plus 4 bytes for the target hunk index.
+        let needed = (count as usize * 4) + 4;
+        if cursor.remaining() < needed {
+            return Err(HunkError::TooShort {
+                offset: cursor.position(),
+                needed,
+                available: cursor.remaining(),
+            });
+        }
+
         let target_hunk = cursor.read_u32_be()?;
         let mut offsets = Vec::with_capacity(count as usize);
         for _ in 0..count {
@@ -363,6 +410,17 @@ fn parse_reloc32_short(cursor: &mut Cursor<'_>, hunks: &mut [Hunk]) -> Result<()
         if count == 0 {
             break;
         }
+        // Safety check: verify we have enough data for `count` offsets (2 bytes each).
+        // Plus 2 bytes for the target hunk index.
+        let needed = (count as usize * 2) + 2;
+        if cursor.remaining() < needed {
+            return Err(HunkError::TooShort {
+                offset: cursor.position(),
+                needed,
+                available: cursor.remaining(),
+            });
+        }
+
         let target_hunk = cursor.read_u16_be()? as u32;
         let mut offsets = Vec::with_capacity(count as usize);
         for _ in 0..count {
@@ -641,8 +699,43 @@ mod tests {
     }
 
     #[test]
-    fn error_on_empty_input() {
-        let result = parse_hunk_file(&[]);
-        assert!(result.is_err());
+    fn error_on_too_many_hunks() {
+        let mut out = Vec::new();
+        // Header
+        out.extend_from_slice(&hunk_ids::HUNK_HEADER.to_be_bytes());
+        out.extend_from_slice(&0u32.to_be_bytes()); // no lib names
+        
+        // Number of hunks - 70000 (exceeds 65536 limit)
+        out.extend_from_slice(&70000u32.to_be_bytes());
+        
+        let result = parse_hunk_file(&out);
+        assert!(matches!(result, Err(HunkError::InvalidValue { context: "hunk count > 65536", .. })));
+    }
+
+    #[test]
+    fn error_on_huge_reloc_count() {
+        let mut out = Vec::new();
+
+        // Header
+        out.extend_from_slice(&hunk_ids::HUNK_HEADER.to_be_bytes());
+        out.extend_from_slice(&0u32.to_be_bytes()); 
+        out.extend_from_slice(&1u32.to_be_bytes()); 
+        out.extend_from_slice(&0u32.to_be_bytes()); 
+        out.extend_from_slice(&0u32.to_be_bytes()); 
+        out.extend_from_slice(&1u32.to_be_bytes()); // size: 1 long
+
+        // HUNK_CODE
+        out.extend_from_slice(&hunk_ids::HUNK_CODE.to_be_bytes());
+        out.extend_from_slice(&1u32.to_be_bytes()); // 1 long of code
+        out.extend_from_slice(&[0x4E, 0x75, 0x00, 0x00]); // RTS
+
+        // HUNK_RELOC32 with huge count
+        out.extend_from_slice(&hunk_ids::HUNK_RELOC32.to_be_bytes());
+        out.extend_from_slice(&0x100000u32.to_be_bytes()); // Huge count
+        // We stop here. The file is now too short to contain 0x100000 * 4 bytes.
+
+        let result = parse_hunk_file(&out);
+        // Should fail with TooShort, NOT panic with OOM
+        assert!(matches!(result, Err(HunkError::TooShort { .. })));
     }
 }

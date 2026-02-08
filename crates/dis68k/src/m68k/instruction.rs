@@ -215,10 +215,20 @@ pub enum Mnemonic {
     Swap,
     Tas,
     Chk,
+    Chk2,    // 68020+ check against bounds pair
+    Cmp2,    // 68020+ compare against bounds pair
+    Cas,     // 68020+ compare and swap
+    Cas2,    // 68020+ compare and swap dual
+    Pack,    // 68020+ BCD pack
+    Unpk,    // 68020+ BCD unpack
+    Movec,   // 68010+ move control register
+    Moves,   // 68010+ move address space
+    Rtd,     // 68010+ return and deallocate
     Reset,
 
     // Pseudo-instruction for unrecognized data
     Dc,
+    TrapA,   // A-line trap (Amiga system calls)
 }
 
 impl Mnemonic {
@@ -303,8 +313,18 @@ impl Mnemonic {
             Mnemonic::Swap => "swap",
             Mnemonic::Tas => "tas",
             Mnemonic::Chk => "chk",
+            Mnemonic::Chk2 => "chk2",
+            Mnemonic::Cmp2 => "cmp2",
+            Mnemonic::Cas => "cas",
+            Mnemonic::Cas2 => "cas2",
+            Mnemonic::Pack => "pack",
+            Mnemonic::Unpk => "unpk",
+            Mnemonic::Movec => "movec",
+            Mnemonic::Moves => "moves",
+            Mnemonic::Rtd => "rtd",
             Mnemonic::Reset => "reset",
             Mnemonic::Dc => "dc",
+            Mnemonic::TrapA => "trapa",
         }
     }
 
