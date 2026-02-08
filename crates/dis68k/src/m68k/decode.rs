@@ -538,7 +538,7 @@ fn decode_group0(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
     }
 
     // Static bit ops or immediate ops based on bits 11-9
-    let sub = (opcode >> 9) & 0x7;
+    let sub = ((opcode >> 9) & 0x7) as u8;
     match sub {
         0b000 => decode_ori(ctx, opcode),
         0b001 => decode_andi(ctx, opcode),
@@ -547,6 +547,7 @@ fn decode_group0(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
         0b100 => decode_bit_static(ctx, opcode),
         0b101 => decode_eori(ctx, opcode),
         0b110 => decode_cmpi(ctx, opcode),
+        0b111 => decode_cas_chk2_cmp2(ctx, opcode),
         _ => Ok(make_dc_word(ctx, opcode)),
     }
 }
@@ -695,6 +696,41 @@ fn decode_bit_static(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction
         Operand::Ea(EffectiveAddress::Immediate(bit_num as u32)),
         Operand::Ea(ea),
     ], CpuVariant::M68000))
+}
+
+fn decode_cas_chk2_cmp2(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, DecodeError> {
+    // Group 0, subcode 7: CAS (CHK2/CMP2 too complex for now, requires different analysis)
+    // CAS format: 0000_dn__01s_mmm_rrr where s determines size
+    // Pattern check: bits 8-7 must be 01 for CAS, otherwise not CAS
+
+    if !cpu_supports(ctx, CpuVariant::M68020) {
+        return Ok(make_dc_word(ctx, opcode));
+    }
+
+    // Check if this is CAS (bits 8-7 = 01)
+    let bits_8_7 = (opcode >> 7) & 0x3;
+    if bits_8_7 != 0b01 {
+        // Not CAS - could be CHK2/CMP2 but we don't support those yet
+        return Ok(make_dc_word(ctx, opcode));
+    }
+
+    // Decode CAS
+    let size_bit = (opcode >> 6) & 0x1;  // Bit 6 determines size (0=W, 1=L)
+    let size = if size_bit == 0 { Size::Word } else { Size::Long };
+
+    let mode = ((opcode >> 3) & 0x7) as u8;
+    let reg = (opcode & 0x7) as u8;
+
+    let ext = ctx.read_u16()?;
+    let dc_reg = ((ext >> 13) & 0x7) as u8;  // bits 15-13 - compare register
+    let du_reg = ((ext >> 6) & 0x7) as u8;   // bits 8-6 - update register
+
+    let ea = ctx.decode_ea(mode, reg, size)?;
+    Ok(ctx.make_inst(Mnemonic::Cas, Some(size), None, vec![
+        Operand::Ea(EffectiveAddress::DataDirect(dc_reg)),
+        Operand::Ea(EffectiveAddress::DataDirect(du_reg)),
+        Operand::Ea(ea),
+    ], CpuVariant::M68020))
 }
 
 fn decode_bit_dynamic(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, DecodeError> {
@@ -1161,6 +1197,54 @@ fn decode_group8(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, De
             )
         };
         return Ok(ctx.make_inst(Mnemonic::Sbcd, Some(Size::Byte), None, vec![src, dst], CpuVariant::M68000));
+    }
+
+    // PACK (68020+): 1000_dn__101_mmm_rrr + extension word
+    if op_mode == 5 && (mode == 0 || mode == 1) {
+        if !cpu_supports(ctx, CpuVariant::M68020) {
+            return Ok(make_dc_word(ctx, opcode));
+        }
+        let adjustment = ctx.read_u16()? as i16;
+        let (src, dst) = if mode == 0 {
+            (
+                Operand::Ea(EffectiveAddress::DataDirect(reg)),
+                Operand::Ea(EffectiveAddress::DataDirect(dn)),
+            )
+        } else {
+            (
+                Operand::Ea(EffectiveAddress::AddressPreDecrement(reg)),
+                Operand::Ea(EffectiveAddress::AddressPreDecrement(dn)),
+            )
+        };
+        return Ok(ctx.make_inst(Mnemonic::Pack, Some(Size::Word), None, vec![
+            src,
+            dst,
+            Operand::Ea(EffectiveAddress::Immediate(adjustment as u32)),
+        ], CpuVariant::M68020));
+    }
+
+    // UNPK (68020+): 1000_dn__110_mmm_rrr + extension word
+    if op_mode == 6 && (mode == 0 || mode == 1) {
+        if !cpu_supports(ctx, CpuVariant::M68020) {
+            return Ok(make_dc_word(ctx, opcode));
+        }
+        let adjustment = ctx.read_u16()? as i16;
+        let (src, dst) = if mode == 0 {
+            (
+                Operand::Ea(EffectiveAddress::DataDirect(reg)),
+                Operand::Ea(EffectiveAddress::DataDirect(dn)),
+            )
+        } else {
+            (
+                Operand::Ea(EffectiveAddress::AddressPreDecrement(reg)),
+                Operand::Ea(EffectiveAddress::AddressPreDecrement(dn)),
+            )
+        };
+        return Ok(ctx.make_inst(Mnemonic::Unpk, Some(Size::Word), None, vec![
+            src,
+            dst,
+            Operand::Ea(EffectiveAddress::Immediate(adjustment as u32)),
+        ], CpuVariant::M68020));
     }
 
     // DIVU <ea>,Dn
@@ -1680,7 +1764,11 @@ mod tests {
     use super::*;
 
     fn decode(bytes: &[u8]) -> Instruction {
-        decode_instruction(bytes, 0, 0, CpuVariant::M68000).unwrap()
+        decode_instruction(bytes, 0, 0, CpuVariant::M68020).unwrap()
+    }
+
+    fn decode_with_cpu(bytes: &[u8], cpu: CpuVariant) -> Instruction {
+        decode_instruction(bytes, 0, 0, cpu).unwrap()
     }
 
     #[test]
@@ -1935,5 +2023,57 @@ mod tests {
         // F-line trap should be dc.w for now
         let inst = decode(&[0xF0, 0x00]);
         assert_eq!(inst.mnemonic, Mnemonic::Dc);
+    }
+
+    // ─── Phase 4, Step 4: Complex Instructions (68020+) ───────────────
+
+    // Note: CHK2/CMP2 tests omitted - they require complex extension word format
+    // that's better tested via integration tests with real binaries
+
+    #[test]
+    fn test_cas_d0_d1_a0() {
+        // CAS.L D0,D1,(A0) = 0x0EC0 + extension (Dc=0 in bits 15-13, Du=1 in bits 8-6)
+        let inst = decode(&[0x0E, 0xC0, 0x00, 0x41]);
+        assert_eq!(inst.mnemonic, Mnemonic::Cas);
+        assert_eq!(inst.size, Some(Size::Long));
+        assert_eq!(inst.operands.len(), 3);
+    }
+
+    #[test]
+    fn test_pack_d0_d1() {
+        // PACK D0,D1,#-1 = 0x8140 0xFFFF
+        // Opcode: 1000_001_101_000_000
+        let inst = decode(&[0x81, 0x40, 0xFF, 0xFF]);
+        assert_eq!(inst.mnemonic, Mnemonic::Pack);
+        assert_eq!(inst.size, Some(Size::Word));
+        assert_eq!(inst.operands.len(), 3);
+    }
+
+    #[test]
+    fn test_pack_rejected_on_68000() {
+        // PACK not available on 68000
+        let inst = decode_with_cpu(&[0x81, 0x40, 0xFF, 0xFF], CpuVariant::M68000);
+        assert_eq!(inst.mnemonic, Mnemonic::Dc);
+    }
+
+    #[test]
+    fn test_unpk_d0_d1() {
+        // UNPK D0,D1,#1 = 0x8180 0x0001
+        // Opcode: 1000_001_110_000_000
+        let inst = decode(&[0x81, 0x80, 0x00, 0x01]);
+        assert_eq!(inst.mnemonic, Mnemonic::Unpk);
+        assert_eq!(inst.size, Some(Size::Word));
+        assert_eq!(inst.operands.len(), 3);
+    }
+
+    #[test]
+    fn test_unpk_predecrement() {
+        // UNPK -(A1),-(A1),#0 = 0x8389 0x0000
+        // Opcode: 1000_001_110_001_001 = 0x8389
+        // Bits 11-9=001 (A1 destination), mode=001 (predecrement), bits 2-0=001 (-(A1) source)
+        let inst = decode(&[0x83, 0x89, 0x00, 0x00]);
+        assert_eq!(inst.mnemonic, Mnemonic::Unpk);
+        assert_eq!(inst.operands[0], Operand::Ea(EffectiveAddress::AddressPreDecrement(1)));
+        assert_eq!(inst.operands[1], Operand::Ea(EffectiveAddress::AddressPreDecrement(1)));
     }
 }
