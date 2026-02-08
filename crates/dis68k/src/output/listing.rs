@@ -1,8 +1,14 @@
-use crate::hunk::types::{HunkFile, HunkType};
+use crate::hunk::types::{Hunk, HunkFile, HunkType};
+use crate::m68k::addressing::EffectiveAddress;
 use crate::m68k::decode::{decode_instruction, DecodeError};
+use crate::m68k::instruction::{Mnemonic, Operand};
 use crate::m68k::variants::CpuVariant;
+use crate::symbols::resolver::{
+    AutoLabelResolver, CompositeResolver, HunkSymbolResolver, SymbolResolver,
+};
+use crate::symbols::labels::collect_branch_targets;
 
-use super::formatter::{format_instruction, FormatOptions};
+use super::formatter::{format_instruction, format_instruction_with_resolver, FormatOptions};
 
 /// Options controlling the listing output.
 #[derive(Debug, Clone)]
@@ -12,6 +18,8 @@ pub struct ListingOptions {
     pub show_line_numbers: bool,
     pub uppercase: bool,
     pub cpu: CpuVariant,
+    /// Enable symbol resolution (auto-labels, LVO comments, hunk symbols).
+    pub symbols: bool,
 }
 
 impl Default for ListingOptions {
@@ -22,6 +30,7 @@ impl Default for ListingOptions {
             show_line_numbers: true,
             uppercase: false,
             cpu: CpuVariant::M68000,
+            symbols: true,
         }
     }
 }
@@ -38,7 +47,14 @@ pub struct ListingLine {
 /// Walks each hunk in order. Code hunks are disassembled instruction by
 /// instruction. Data hunks are formatted as `dc.b`/`dc.l` directives.
 /// BSS hunks show `ds.b` reservations.
-pub fn generate_listing(hunk_file: &HunkFile, options: &ListingOptions) -> Vec<ListingLine> {
+///
+/// When `resolver` is `Some`, branch targets get auto-labels, LVO calls
+/// get symbolic comments, and relocation sites are annotated.
+pub fn generate_listing(
+    hunk_file: &HunkFile,
+    options: &ListingOptions,
+    resolver: Option<&dyn SymbolResolver>,
+) -> Vec<ListingLine> {
     let mut lines = Vec::new();
     let mut line_num: u32 = 1;
 
@@ -108,20 +124,40 @@ pub fn generate_listing(hunk_file: &HunkFile, options: &ListingOptions) -> Vec<L
 
         match hunk.hunk_type {
             HunkType::Code => {
-                disassemble_code(
-                    &hunk.data,
-                    &mut lines,
-                    &mut line_num,
-                    options,
-                    &fmt_opts,
-                );
+                // Build a per-hunk composite resolver if symbols are enabled
+                if options.symbols {
+                    let hunk_resolver = build_code_resolver(hunk, resolver, options.cpu);
+                    disassemble_code(
+                        &hunk.data,
+                        &mut lines,
+                        &mut line_num,
+                        options,
+                        &fmt_opts,
+                        Some(&hunk_resolver),
+                    );
+                } else {
+                    disassemble_code(
+                        &hunk.data,
+                        &mut lines,
+                        &mut line_num,
+                        options,
+                        &fmt_opts,
+                        None,
+                    );
+                }
             }
             HunkType::Data => {
+                let reloc_offsets = if options.symbols {
+                    build_relocation_map(hunk)
+                } else {
+                    std::collections::BTreeMap::new()
+                };
                 format_data_section(
                     &hunk.data,
                     &mut lines,
                     &mut line_num,
                     options,
+                    &reloc_offsets,
                 );
             }
             HunkType::Bss => {
@@ -135,26 +171,105 @@ pub fn generate_listing(hunk_file: &HunkFile, options: &ListingOptions) -> Vec<L
     lines
 }
 
+/// A resolver that combines per-hunk resolvers with an external resolver.
+///
+/// Queries the owned composite first, then falls back to the external
+/// resolver (typically the LVO tables passed in by the caller).
+struct ListingResolver<'a> {
+    local: CompositeResolver,
+    external: Option<&'a dyn SymbolResolver>,
+}
+
+impl<'a> SymbolResolver for ListingResolver<'a> {
+    fn resolve_lvo(&self, offset: i16) -> Option<String> {
+        self.local.resolve_lvo(offset)
+            .or_else(|| self.external.and_then(|e| e.resolve_lvo(offset)))
+    }
+
+    fn resolve_address(&self, address: u32) -> Option<String> {
+        self.local.resolve_address(address)
+            .or_else(|| self.external.and_then(|e| e.resolve_address(address)))
+    }
+}
+
+/// Build a resolver for a code hunk.
+///
+/// Combines: hunk symbols (highest priority) → auto-labels → external resolver (LVO etc.)
+fn build_code_resolver<'a>(
+    hunk: &Hunk,
+    external: Option<&'a dyn SymbolResolver>,
+    cpu: CpuVariant,
+) -> ListingResolver<'a> {
+    let mut local = CompositeResolver::new();
+
+    // Hunk symbols first (user-defined labels take priority)
+    if !hunk.symbols.is_empty() {
+        local.add(Box::new(HunkSymbolResolver::from_hunk(hunk)));
+    }
+
+    // Auto-generated labels from branch/jump targets
+    let targets = collect_branch_targets(&hunk.data, 0, cpu);
+    if !targets.is_empty() {
+        local.add(Box::new(AutoLabelResolver::from_targets(targets)));
+    }
+
+    ListingResolver { local, external }
+}
+
+/// Build a map from byte offset → target hunk index for relocation annotations.
+fn build_relocation_map(hunk: &Hunk) -> std::collections::BTreeMap<u32, u32> {
+    let mut map = std::collections::BTreeMap::new();
+    for reloc in &hunk.relocations {
+        for &offset in &reloc.offsets {
+            map.insert(offset, reloc.target_hunk);
+        }
+    }
+    map
+}
+
 fn disassemble_code(
     data: &[u8],
     lines: &mut Vec<ListingLine>,
     line_num: &mut u32,
     options: &ListingOptions,
     fmt_opts: &FormatOptions,
+    resolver: Option<&dyn SymbolResolver>,
 ) {
     let mut offset = 0usize;
 
     while offset < data.len() {
+        // Emit label if this address has one
+        if let Some(ref res) = resolver {
+            if let Some(label) = res.resolve_address(offset as u32) {
+                push_line(lines, line_num, options, format!("{label}:"));
+            }
+        }
+
         match decode_instruction(data, offset, 0, options.cpu) {
             Ok(inst) => {
-                let formatted = format_instruction(&inst, fmt_opts);
-                let text = format_code_line(
+                let formatted = if resolver.is_some() {
+                    format_instruction_with_resolver(&inst, fmt_opts, resolver)
+                } else {
+                    format_instruction(&inst, fmt_opts)
+                };
+
+                // Build the LVO comment if applicable
+                let comment = resolver
+                    .as_ref()
+                    .and_then(|res| detect_lvo_comment(&inst.mnemonic, &inst.operands, *res));
+
+                let mut text = format_code_line(
                     offset as u32,
                     &formatted.hex_bytes,
                     &formatted.mnemonic,
                     &formatted.operands,
                     options,
                 );
+
+                if let Some(c) = comment {
+                    text.push_str(&format!("  ; {c}"));
+                }
+
                 push_line(lines, line_num, options, text);
                 offset += inst.size_bytes as usize;
             }
@@ -204,6 +319,26 @@ fn disassemble_code(
     }
 }
 
+/// Detect if an instruction is a JSR/JMP through (displacement,A6) and
+/// resolve the displacement as an LVO name.
+fn detect_lvo_comment(
+    mnemonic: &Mnemonic,
+    operands: &[Operand],
+    resolver: &dyn SymbolResolver,
+) -> Option<String> {
+    if !matches!(mnemonic, Mnemonic::Jsr | Mnemonic::Jmp) {
+        return None;
+    }
+
+    for op in operands {
+        if let Operand::Ea(EffectiveAddress::AddressDisplacement(6, disp)) = op {
+            return resolver.resolve_lvo(*disp);
+        }
+    }
+
+    None
+}
+
 fn format_code_line(
     address: u32,
     hex: &str,
@@ -235,6 +370,7 @@ fn format_data_section(
     lines: &mut Vec<ListingLine>,
     line_num: &mut u32,
     options: &ListingOptions,
+    reloc_map: &std::collections::BTreeMap<u32, u32>,
 ) {
     // Try to detect ASCII strings; otherwise emit as hex dc.l/dc.b
     let mut offset = 0usize;
@@ -281,6 +417,12 @@ fn format_data_section(
                 text.push_str(&format!("{hex:<20}  "));
             }
             text.push_str(&format!("dc.l     ${val:08X}"));
+
+            // Annotate relocation sites
+            if let Some(target_hunk) = reloc_map.get(&(offset as u32)) {
+                text.push_str(&format!("  ; -> hunk_{target_hunk}"));
+            }
+
             push_line(lines, line_num, options, text);
             offset += 4;
         } else {

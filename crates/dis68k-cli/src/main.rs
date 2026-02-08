@@ -79,9 +79,24 @@ fn main() {
         show_line_numbers: !cli.no_line_numbers,
         uppercase: cli.uppercase,
         cpu,
+        symbols: !cli.no_symbols,
     };
 
-    let listing = dis68k::generate_listing(&hunk_file, &options);
+    // Build the resolver chain: LVO tables for exec.library (default assumption
+    // is A6 = ExecBase; true library base tracking requires Phase 5 data-flow).
+    let resolver: Option<Box<dyn dis68k::SymbolResolver>> = if !cli.no_symbols {
+        let mut composite = dis68k::CompositeResolver::new();
+        composite.add(Box::new(dis68k::LvoResolver::new("exec")));
+        Some(Box::new(composite))
+    } else {
+        None
+    };
+
+    let listing = dis68k::generate_listing(
+        &hunk_file,
+        &options,
+        resolver.as_deref(),
+    );
 
     // Write output
     let output_text: String = listing.iter().map(|l| format!("{}\n", l.text)).collect();

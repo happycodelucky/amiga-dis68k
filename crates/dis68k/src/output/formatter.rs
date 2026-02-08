@@ -1,5 +1,6 @@
 use crate::m68k::addressing::EffectiveAddress;
 use crate::m68k::instruction::*;
+use crate::symbols::resolver::SymbolResolver;
 
 /// Options controlling assembly output formatting.
 #[derive(Debug, Clone)]
@@ -79,6 +80,121 @@ pub fn format_instruction(inst: &Instruction, opts: &FormatOptions) -> Formatted
         hex_bytes,
         mnemonic,
         operands,
+    }
+}
+
+/// Format a decoded instruction with symbol resolution for branch targets.
+///
+/// Like `format_instruction`, but displacement operands are resolved to
+/// label names when possible (e.g., `beq loc_001A` instead of `beq $0000001A`).
+pub fn format_instruction_with_resolver(
+    inst: &Instruction,
+    opts: &FormatOptions,
+    resolver: Option<&dyn SymbolResolver>,
+) -> FormattedInstruction {
+    let hex_bytes = inst
+        .raw_bytes
+        .iter()
+        .map(|b| format!("{b:02X}"))
+        .collect::<String>();
+
+    let mut mnemonic = String::new();
+
+    let base_name = inst.mnemonic.name();
+    mnemonic.push_str(base_name);
+
+    if inst.mnemonic.is_conditional() {
+        if let Some(cond) = &inst.condition {
+            mnemonic.push_str(cond.suffix());
+        }
+    }
+
+    if let Some(size) = &inst.size {
+        if !matches!(
+            inst.mnemonic,
+            Mnemonic::Bra
+                | Mnemonic::Bsr
+                | Mnemonic::Bcc
+                | Mnemonic::Dbcc
+                | Mnemonic::Jmp
+                | Mnemonic::Jsr
+                | Mnemonic::Nop
+                | Mnemonic::Rts
+                | Mnemonic::Rte
+                | Mnemonic::Rtr
+                | Mnemonic::Trap
+                | Mnemonic::Trapv
+                | Mnemonic::Illegal
+                | Mnemonic::Reset
+                | Mnemonic::Unlk
+                | Mnemonic::Moveq
+        ) {
+            mnemonic.push_str(size.suffix());
+        }
+    }
+
+    if opts.uppercase {
+        mnemonic = mnemonic.to_uppercase();
+    }
+
+    let operands = format_operands_with_resolver(inst, opts, resolver);
+
+    FormattedInstruction {
+        hex_bytes,
+        mnemonic,
+        operands,
+    }
+}
+
+fn format_operands_with_resolver(
+    inst: &Instruction,
+    opts: &FormatOptions,
+    resolver: Option<&dyn SymbolResolver>,
+) -> String {
+    if inst.operands.is_empty() {
+        return String::new();
+    }
+
+    let parts: Vec<String> = inst
+        .operands
+        .iter()
+        .map(|op| format_operand_with_resolver(op, inst, opts, resolver))
+        .collect();
+
+    parts.join(",")
+}
+
+fn format_operand_with_resolver(
+    op: &Operand,
+    inst: &Instruction,
+    opts: &FormatOptions,
+    resolver: Option<&dyn SymbolResolver>,
+) -> String {
+    match op {
+        Operand::Displacement8(d) => {
+            let target = (inst.address as i32) + 2 + (*d as i32);
+            if let Some(res) = resolver {
+                if target >= 0 {
+                    if let Some(label) = res.resolve_address(target as u32) {
+                        return label;
+                    }
+                }
+            }
+            format!("${target:08X}")
+        }
+        Operand::Displacement16(d) => {
+            let target = (inst.address as i32) + 2 + (*d as i32);
+            if let Some(res) = resolver {
+                if target >= 0 {
+                    if let Some(label) = res.resolve_address(target as u32) {
+                        return label;
+                    }
+                }
+            }
+            format!("${target:08X}")
+        }
+        // All other operands delegate to the original formatter
+        _ => format_operand(op, inst, opts),
     }
 }
 
@@ -346,6 +462,43 @@ mod tests {
         let inst = make_inst(Mnemonic::Nop, None, vec![]);
         let fmt = format_instruction(&inst, &FormatOptions { uppercase: true });
         assert_eq!(fmt.mnemonic, "NOP");
+    }
+
+    #[test]
+    fn format_branch_with_resolver() {
+        use crate::symbols::resolver::AutoLabelResolver;
+
+        let mut inst = make_inst(
+            Mnemonic::Bcc,
+            Some(Size::Byte),
+            vec![Operand::Displacement8(6)],
+        );
+        inst.condition = Some(Condition::Eq);
+        // address=0, target = 0 + 2 + 6 = 8
+        let resolver = AutoLabelResolver::from_targets(vec![8]);
+        let fmt = format_instruction_with_resolver(
+            &inst,
+            &FormatOptions::default(),
+            Some(&resolver),
+        );
+        assert_eq!(fmt.mnemonic, "beq");
+        assert_eq!(fmt.operands, "loc_0008");
+    }
+
+    #[test]
+    fn format_branch_without_resolver_unchanged() {
+        let mut inst = make_inst(
+            Mnemonic::Bcc,
+            Some(Size::Byte),
+            vec![Operand::Displacement8(6)],
+        );
+        inst.condition = Some(Condition::Eq);
+        let fmt = format_instruction_with_resolver(
+            &inst,
+            &FormatOptions::default(),
+            None,
+        );
+        assert_eq!(fmt.operands, "$00000008");
     }
 
     #[test]
