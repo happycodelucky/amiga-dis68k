@@ -1,5 +1,14 @@
 # dis68k — Amiga 68k Hunk Executable Disassembler
 
+ > **AI Experiment** — This project was researched, designed, and implemented entirely by
+ > [Claude Opus 4.6](https://www.anthropic.com/claude) (Anthropic's AI assistant) as an
+ > exercise in AI-driven systems programming. The Amiga hunk format specification,
+ > Motorola 68000 instruction encoding, and Amiga OS system symbol tables were all
+ > researched and synthesised by the model, with the resulting Rust code generated
+ > across multiple conversational sessions. No guarantees are made regarding
+ > completeness, correctness, or fitness for any particular purpose. Use at your own
+ > discretion — and file issues if you spot bugs.
+
 A Rust-based disassembler for Commodore Amiga 68k executable files (hunk format). Reads compiled Amiga binaries and produces human-readable Motorola 68000 assembly output with line numbers, hex dumps, section headers, and symbol annotations.
 
 ## Features
