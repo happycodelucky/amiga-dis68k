@@ -15,6 +15,7 @@ A Rust-based disassembler for Commodore Amiga 68k executable files (hunk format)
 
 - Parses the Amiga Hunk executable format (HUNK_CODE, HUNK_DATA, HUNK_BSS, HUNK_RELOC32, HUNK_SYMBOL, HUNK_DEBUG, and more)
 - Decodes all core MC68000 instructions across all 14 addressing modes
+- 68020+ support: extended addressing modes, bit field operations, conditional traps, long branches
 - Motorola assembly syntax output with configurable formatting
 - Line numbers, address column, hex byte dumps
 - ASCII string detection in data sections
@@ -138,7 +139,7 @@ Hunks: 3 (first: 0, last: 2)
 cargo test
 ```
 
-39 tests covering the hunk parser (8), instruction decoder (25), and formatter (6).
+102 tests covering the hunk parser, instruction decoder (68000 + 68020 extensions), formatter, and symbol resolution.
 
 ## Library Usage
 
@@ -172,7 +173,7 @@ for line in &listing {
 | 2. 68000 Decoder | Done | All core MC68000 instructions, 14 addressing modes |
 | 2b. Formatter/Listing | Done | Motorola syntax, listing with addresses/hex/line numbers |
 | 3. Symbol Resolution | Done | Amiga OS LVO tables, auto-labels, relocation comments |
-| 4. 68020+ Extensions | Done | Bit fields, 32-bit mul/div, full extension words, FPU |
+| 4. 68020+ Extensions | In Progress | CPU filtering, extended addressing, bit fields (Steps 1-3 done) |
 | 5. Advanced Analysis | Planned | Library base tracking, function detection, cross-refs |
 
 ## Architecture
@@ -197,7 +198,10 @@ Detailed technical references are in `docs/research/`:
 ## References
 
 - [Motorola M68000 Family Programmer's Reference Manual](https://www.nxp.com/docs/en/reference-manual/M68000PRM.pdf)
+- [MC68020 User's Manual](https://www.nxp.com/docs/en/data-sheet/MC68020UM.pdf) — 68020-specific instruction encodings
+- [68k.hax.com](http://68k.hax.com/) — Per-instruction encoding reference (BFEXTU, BFINS, etc.)
 - [Amiga Hunk File Format](http://amiga-dev.wikidot.com/file-format:hunk)
 - [AmigaDOS Technical Reference Manual](https://archive.org/details/AmigaDOS_Technical_Reference_Manual_1985_Commodore)
+- [MC680x0 Reference](https://amigasourcecodepreservation.gitlab.io/mc680x0-reference/) — Amiga-focused 68k reference
 - [resrc4](https://github.com/rolsen74/resrc4) — Existing Rust Amiga disassembler
-- [Musashi](https://github.com/kstenerud/Musashi) — Comprehensive C 68k emulator/disassembler
+- [Musashi](https://github.com/kstenerud/Musashi) — Comprehensive C 68k emulator/disassembler (used as reference for bit field and extended addressing encodings)

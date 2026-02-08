@@ -1499,6 +1499,12 @@ fn decode_group_e(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
     let size_bits = (opcode >> 6) & 0x3;
 
     if size_bits == 3 {
+        // Bit field instructions (68020+): bit 11 set (opcode & 0x0800 != 0)
+        // Memory shift/rotate: bit 11 clear
+        if (opcode & 0x0800) != 0 {
+            return decode_bitfield(ctx, opcode);
+        }
+
         // Memory shift/rotate (word-size, shift by 1)
         let mode = ((opcode >> 3) & 0x7) as u8;
         let reg = (opcode & 0x7) as u8;
@@ -1555,6 +1561,82 @@ fn decode_group_e(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, D
         count_operand,
         Operand::Ea(EffectiveAddress::DataDirect(reg)),
     ], CpuVariant::M68000))
+}
+
+// ─── Bit Field Instructions (68020+) ────────────────────────────
+
+fn decode_bitfield(ctx: &mut DecodeCtx<'_>, opcode: u16) -> Result<Instruction, DecodeError> {
+    if !cpu_supports(ctx, CpuVariant::M68020) {
+        return Ok(make_dc_word(ctx, opcode));
+    }
+
+    let mode = ((opcode >> 3) & 0x7) as u8;
+    let reg = (opcode & 0x7) as u8;
+
+    // Bits 11-9 + bit 8 determine the instruction
+    let bf_type = (opcode >> 8) & 0xF;
+    let mnemonic = match bf_type {
+        0x8 => Mnemonic::Bftst,   // 1000
+        0x9 => Mnemonic::Bfextu,  // 1001
+        0xA => Mnemonic::Bfchg,   // 1010
+        0xB => Mnemonic::Bfexts,  // 1011
+        0xC => Mnemonic::Bfclr,   // 1100
+        0xD => Mnemonic::Bfffo,   // 1101
+        0xE => Mnemonic::Bfset,   // 1110
+        0xF => Mnemonic::Bfins,   // 1111
+        _ => return Ok(make_dc_word(ctx, opcode)),
+    };
+
+    // Read extension word
+    let ext = ctx.read_u16()?;
+
+    // Parse offset: bit 11 = Do (0=immediate, 1=register)
+    let offset = if (ext & 0x0800) != 0 {
+        BitFieldParam::Register(((ext >> 6) & 0x7) as u8)
+    } else {
+        BitFieldParam::Immediate(((ext >> 6) & 0x1F) as u8)
+    };
+
+    // Parse width: bit 5 = Dw (0=immediate, 1=register)
+    let width = if (ext & 0x0020) != 0 {
+        BitFieldParam::Register((ext & 0x7) as u8)
+    } else {
+        BitFieldParam::Immediate((ext & 0x1F) as u8)
+    };
+
+    let bf_operand = Operand::BitField { offset, width };
+
+    // Decode the EA operand
+    let ea = ctx.decode_ea(mode, reg, Size::Long)?;
+    let cpu_required = std::cmp::max(CpuVariant::M68020, ea.min_cpu());
+
+    // Build operand list based on instruction type
+    let operands = match mnemonic {
+        // Single-operand: ea{offset:width}
+        Mnemonic::Bftst | Mnemonic::Bfchg | Mnemonic::Bfclr | Mnemonic::Bfset => {
+            vec![Operand::Ea(ea), bf_operand]
+        }
+        // BFINS: Dn,ea{offset:width} (source register)
+        Mnemonic::Bfins => {
+            let dn = ((ext >> 12) & 0x7) as u8;
+            vec![
+                Operand::Ea(EffectiveAddress::DataDirect(dn)),
+                Operand::Ea(ea),
+                bf_operand,
+            ]
+        }
+        // BFEXTU, BFEXTS, BFFFO: ea{offset:width},Dn (destination register)
+        _ => {
+            let dn = ((ext >> 12) & 0x7) as u8;
+            vec![
+                Operand::Ea(ea),
+                bf_operand,
+                Operand::Ea(EffectiveAddress::DataDirect(dn)),
+            ]
+        }
+    };
+
+    Ok(ctx.make_inst(mnemonic, None, None, operands, cpu_required))
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────

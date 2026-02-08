@@ -157,13 +157,15 @@ fn format_operands_with_resolver(
         return String::new();
     }
 
-    let parts: Vec<String> = inst
-        .operands
-        .iter()
-        .map(|op| format_operand_with_resolver(op, inst, opts, resolver))
-        .collect();
-
-    parts.join(",")
+    // BitField operands concatenate directly (no comma) to the preceding operand
+    let mut result = String::new();
+    for (i, op) in inst.operands.iter().enumerate() {
+        if i > 0 && !matches!(op, Operand::BitField { .. }) {
+            result.push(',');
+        }
+        result.push_str(&format_operand_with_resolver(op, inst, opts, resolver));
+    }
+    result
 }
 
 fn format_operand_with_resolver(
@@ -216,13 +218,15 @@ fn format_operands(inst: &Instruction, opts: &FormatOptions) -> String {
         return String::new();
     }
 
-    let parts: Vec<String> = inst
-        .operands
-        .iter()
-        .map(|op| format_operand(op, inst, opts))
-        .collect();
-
-    parts.join(",")
+    // BitField operands concatenate directly (no comma) to the preceding operand
+    let mut result = String::new();
+    for (i, op) in inst.operands.iter().enumerate() {
+        if i > 0 && !matches!(op, Operand::BitField { .. }) {
+            result.push(',');
+        }
+        result.push_str(&format_operand(op, inst, opts));
+    }
+    result
 }
 
 fn format_operand(op: &Operand, inst: &Instruction, _opts: &FormatOptions) -> String {
@@ -256,6 +260,7 @@ fn format_operand(op: &Operand, inst: &Instruction, _opts: &FormatOptions) -> St
         Operand::Ccr => "ccr".to_string(),
         Operand::Sr => "sr".to_string(),
         Operand::Usp => "usp".to_string(),
+        Operand::BitField { offset, width } => format_bitfield(offset, width),
     }
 }
 
@@ -449,6 +454,19 @@ fn format_ea(ea: &EffectiveAddress) -> String {
                 format_index_opt(index_reg, index_size, scale), outer_disp)
         }
     }
+}
+
+/// Format a bit field specifier as {offset:width}.
+fn format_bitfield(offset: &BitFieldParam, width: &BitFieldParam) -> String {
+    let off_str = match offset {
+        BitFieldParam::Immediate(n) => format!("{n}"),
+        BitFieldParam::Register(n) => format!("d{n}"),
+    };
+    let wid_str = match width {
+        BitFieldParam::Immediate(n) => format!("{n}"),
+        BitFieldParam::Register(n) => format!("d{n}"),
+    };
+    format!("{{{off_str}:{wid_str}}}")
 }
 
 /// Helper to format optional index register for memory indirect modes.

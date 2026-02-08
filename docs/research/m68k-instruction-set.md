@@ -288,6 +288,39 @@ Used by Bcc, DBcc, Scc, and TRAPcc instructions:
   - Memory indirect with pre/post-indexing
   - 32-bit branch displacements
 
+#### Bit Field Instruction Encoding
+
+All bit field instructions share group E with size_bits=11:
+```
+Opcode word: 1110_xxxx_11_mmm_rrr
+             ^^^^                    Group E
+                  ^^^^               Instruction type (bit 11 always set)
+                       ^^            Size bits = 11
+                          ^^^_^^^    EA mode/register
+```
+
+| Instruction | Bits 15-6 | Base Opcode | Has Dn? | Dn is |
+|-------------|-----------|-------------|---------|-------|
+| BFTST       | 1110_1000_11 | 0xE8C0 | No  | — |
+| BFEXTU      | 1110_1001_11 | 0xE9C0 | Yes | Destination |
+| BFCHG       | 1110_1010_11 | 0xEAC0 | No  | — |
+| BFEXTS      | 1110_1011_11 | 0xEBC0 | Yes | Destination |
+| BFCLR       | 1110_1100_11 | 0xECC0 | No  | — |
+| BFFFO       | 1110_1101_11 | 0xEDC0 | Yes | Destination |
+| BFSET       | 1110_1110_11 | 0xEEC0 | No  | — |
+| BFINS       | 1110_1111_11 | 0xEFC0 | Yes | Source |
+
+Extension word format:
+```
+Bit 15-12: Dn register (for BFEXTU/BFEXTS/BFFFO/BFINS)
+Bit 11:    Do (0=immediate offset, 1=register offset)
+Bit 10-6:  Offset (immediate 0-31 or register 0-7 in bits 8-6)
+Bit 5:     Dw (0=immediate width, 1=register width)
+Bit 4-0:   Width (immediate 0-31, where 0 encodes 32, or register 0-7 in bits 2-0)
+```
+
+Key: memory shift/rotate uses bits 11-9 for type (0-3), bit field uses bit 11=1.
+
 ### 68030
 - On-chip MMU and dual caches (data + instruction)
 - Same instruction set as 68020

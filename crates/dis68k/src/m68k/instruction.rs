@@ -181,6 +181,16 @@ pub enum Mnemonic {
     Bclr,
     Bchg,
 
+    // Bit field (68020+)
+    Bftst,
+    Bfextu,
+    Bfchg,
+    Bfexts,
+    Bfclr,
+    Bfffo,
+    Bfset,
+    Bfins,
+
     // BCD
     Abcd,
     Sbcd,
@@ -286,6 +296,14 @@ impl Mnemonic {
             Mnemonic::Bset => "bset",
             Mnemonic::Bclr => "bclr",
             Mnemonic::Bchg => "bchg",
+            Mnemonic::Bftst => "bftst",
+            Mnemonic::Bfextu => "bfextu",
+            Mnemonic::Bfchg => "bfchg",
+            Mnemonic::Bfexts => "bfexts",
+            Mnemonic::Bfclr => "bfclr",
+            Mnemonic::Bfffo => "bfffo",
+            Mnemonic::Bfset => "bfset",
+            Mnemonic::Bfins => "bfins",
             Mnemonic::Abcd => "abcd",
             Mnemonic::Sbcd => "sbcd",
             Mnemonic::Nbcd => "nbcd",
@@ -359,6 +377,20 @@ pub enum Operand {
     Sr,
     /// User stack pointer (USP).
     Usp,
+    /// Bit field specifier {offset:width} (68020+).
+    BitField {
+        offset: BitFieldParam,
+        width: BitFieldParam,
+    },
+}
+
+/// A bit field parameter — either an immediate value or a data register.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BitFieldParam {
+    /// Immediate value (0-31 for offset, 1-32 for width where 0 encodes 32).
+    Immediate(u8),
+    /// Data register D0-D7.
+    Register(u8),
 }
 
 /// A fully decoded 68k instruction.
