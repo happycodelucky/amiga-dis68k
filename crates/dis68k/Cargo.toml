@@ -1,0 +1,7 @@
+[package]
+name = "dis68k"
+version = "0.1.0"
+edition = "2021"
+description = "Amiga 68k hunk executable disassembler library"
+
+[dependencies]

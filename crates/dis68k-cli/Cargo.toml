@@ -1,0 +1,13 @@
+[package]
+name = "dis68k-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Amiga 68k hunk executable disassembler CLI"
+
+[[bin]]
+name = "dis68k"
+path = "src/main.rs"
+
+[dependencies]
+dis68k = { path = "../dis68k" }
+clap = { version = "4", features = ["derive"] }
