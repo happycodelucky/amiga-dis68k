@@ -171,8 +171,8 @@ for line in &listing {
 | 1. Hunk Parser | Done | Parse all common hunk types, relocations, symbols |
 | 2. 68000 Decoder | Done | All core MC68000 instructions, 14 addressing modes |
 | 2b. Formatter/Listing | Done | Motorola syntax, listing with addresses/hex/line numbers |
-| 3. Symbol Resolution | Planned | Amiga OS LVO tables, auto-labels, relocation comments |
-| 4. 68020+ Extensions | Planned | Bit fields, 32-bit mul/div, full extension words, FPU |
+| 3. Symbol Resolution | Done | Amiga OS LVO tables, auto-labels, relocation comments |
+| 4. 68020+ Extensions | Done | Bit fields, 32-bit mul/div, full extension words, FPU |
 | 5. Advanced Analysis | Planned | Library base tracking, function detection, cross-refs |
 
 ## Architecture
